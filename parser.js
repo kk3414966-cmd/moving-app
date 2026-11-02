@@ -82,25 +82,53 @@ export function parseRoute(token) {
   return { route: place, from, to, fromFloor, toFloor };
 }
 
-// 日期：11/5、2026/11/5、明天、後天
+// 日期：1105、1105、06、09~12（好幾天）、11/5、2026/11/5、明天、後天
 function takeDate(s, now) {
-  let m = s.match(/^\s*(?:(\d{4})\/)?(\d{1,2})\/(\d{1,2})\s*/);
+  let m = s.match(/(?:^|\s)(\d{2})(\d{2})((?:\s*[、,，~～]\s*\d{1,2})*)(?=\s|$)/);
+  if (m && +m[1] >= 1 && +m[1] <= 12 && +m[2] >= 1 && +m[2] <= 31) {
+    const y = now.getFullYear(), mo = +m[1], days = [+m[2]];
+    let last = +m[2];
+    for (const p of m[3].match(/[、,，~～]\s*\d{1,2}/g) || []) {
+      const n = +p.replace(/\D/g, '');
+      if (/[~～]/.test(p)) for (let d = last + 1; d <= n; d++) days.push(d);
+      else days.push(n);
+      last = n;
+    }
+    const dates = [...new Set(days)].filter(d => d >= 1 && d <= 31).map(d => ymd(new Date(y, mo - 1, d)));
+    return { date: dates[0], dates, rest: `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`.trim(), explicit: true };
+  }
+  m = s.match(/^\s*(?:(\d{4})\/)?(\d{1,2})\/(\d{1,2})\s*/);
   if (m) {
-    const y = m[1] ? +m[1] : now.getFullYear();
-    return { date: ymd(new Date(y, +m[2] - 1, +m[3])), rest: s.slice(m[0].length), explicit: true };
+    const y = m[1] ? +m[1] : now.getFullYear(), date = ymd(new Date(y, +m[2] - 1, +m[3]));
+    return { date, dates: [date], rest: s.slice(m[0].length), explicit: true };
   }
   m = s.match(/^\s*(今天|明天|後天)\s*/);
   if (m) {
     const d = new Date(now); d.setDate(d.getDate() + { 今天: 0, 明天: 1, 後天: 2 }[m[1]]);
-    return { date: ymd(d), rest: s.slice(m[0].length), explicit: true };
+    return { date: ymd(d), dates: [ymd(d)], rest: s.slice(m[0].length), explicit: true };
   }
-  return { date: ymd(now), rest: s, explicit: false };
+  return { date: ymd(now), dates: [ymd(now)], rest: s, explicit: false };
 }
 
-// 時間：9:30、下午3點、早上9點半
+// 估價單：從「舊家／新家」的地址和樓層算出代號串，例如 03.西區北區0.3
+export function parseEstimate(text) {
+  const line = key => (text.split(/\n/).find(l => l.includes(key)) || '').replace(/^.*?[:：]/, '');
+  const area = s => {
+    const m = s.replace(/^.*?[市縣]/, '').match(/([一-龥]{1,2})區/);
+    return m ? (m[1].length === 1 ? m[1] + '區' : m[1]) : '';
+  };
+  const floor = s => /有電梯/.test(s) ? '0' : (s.match(/(\d+)\s*[樓F樓]/i) || s.match(/(\d+)/) || [])[1] || '';
+  const from = area(line('舊家區域') || line('舊家地址') || line('舊家'));
+  const to = area(line('新家區域') || line('新家地址') || line('新家'));
+  if (!from && !to) return null;
+  const ff = floor(line('舊家樓層')), tf = floor(line('新家樓層'));
+  return { code: '03', from, to, fromFloor: ff, toFloor: tf, text: `03.${from}${to}${ff !== '' || tf !== '' ? `${ff || 0}.${tf || 0}` : ''}` };
+}
+
+// 時間：14:00、14.00、下午3點、早上9點半
 function takeTime(s) {
-  let m = s.match(/(\d{1,2}):(\d{2})/);
-  if (m) return { time: `${pad(+m[1])}:${m[2]}`, rest: s.replace(m[0], ' ') };
+  let m = s.match(/(?:^|\s)(\d{1,2})[.:](\d{2})(?=\s|$)/) || s.match(/(\d{1,2}):(\d{2})/);
+  if (m && +m[1] < 24 && +m[2] < 60) return { time: `${pad(+m[1])}:${m[2]}`, rest: s.replace(m[0], ' ') };
   m = s.match(/(早上|上午|中午|下午|晚上)?\s*(\d{1,2})\s*點\s*(半|(\d{1,2})\s*分)?/);
   if (m) {
     let h = +m[2];
@@ -133,11 +161,16 @@ export function parseLine(input, opts = {}) {
   const categories = opts.categories || DEFAULT_CATEGORIES;
   const raw = input.trim();
   if (!raw) return null;
+  // 第一行是主要內容，後面幾行（例如貼上的估價單）當備註
+  const [first, ...more] = raw.split(/\r?\n/);
+  const note = more.join('\n').trim();
 
-  let { date, rest, explicit } = takeDate(raw, now);
+  let { date, dates, rest, explicit } = takeDate(first.trim(), now);
   const t = takeTime(rest); rest = t.rest.trim();
   const time = t.time || (explicit ? '' : hm(now));
-  const out = { raw, date, time, txs: [], event: null, kind: 'unknown' };
+  const out = { raw, date, dates, time, txs: [], event: null, kind: 'unknown' };
+  const est = note && /舊家|新家|估價/.test(note) ? parseEstimate(note) : null;
+  if (est && !/^\d{1,4}\./.test(rest)) rest = `${est.text} ${rest}`.trim();
 
   // 繳卡費：「繳台新 12000」「台新卡費 12000」
   let m = rest.match(/^(?:繳)?\s*(台新|匯豐|聯邦|玉山)\s*(?:卡費)?\s*\$?\s*([\d,]+)$/) || rest.match(/^繳\s*(台新|匯豐|聯邦|玉山)\s*卡費\s*\$?\s*([\d,]+)$/);
@@ -211,6 +244,8 @@ export function parseLine(input, opts = {}) {
     if (out.kind === 'unknown') out.kind = out.event ? 'event' : 'tx';
   }
   out.txs.forEach(x => { x.date = date; x.time = time; });
+  if (out.event) { out.event.allDay = !out.event.time; if (note) out.event.note = note; }
+  else if (note && out.txs[0]) out.txs[0].note = `${out.txs[0].note || ''}\n${note}`.trim();
   return out;
 }
 

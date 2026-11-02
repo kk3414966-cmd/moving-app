@@ -25,11 +25,11 @@ function itemLine({ col, rec }) {
   if (col === 'events') {
     if (rec.type === 'job') {
       const late = !rec.done && rec.date < today();
-      return `<div class="bubble job ${late ? 'late' : ''}" data-edit="events:${rec.id}">
-        <b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> 工作 ${esc(rec.codeRaw)}．${esc(rec.route)} ${esc(rec.client)}
-        <span class="tag ${rec.done ? 'ok' : 'warn'}">${rec.done ? '實收 ' + money(rec.amount) : late ? '未記收入' : '未完成'}</span></div>`;
+      return `<div class="bubble job ${late ? 'late' : ''}" data-ev="${rec.id}">
+        <b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> ${esc(rec.title)}
+        <span class="tag ${rec.done ? 'ok' : 'warn'}">${rec.done ? '實收 ' + money(rec.amount) : late ? '未記收入' : '未完成'}</span>${rec.note ? '<small>有備註</small>' : ''}</div>`;
     }
-    return `<div class="bubble event" data-edit="events:${rec.id}"><b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> ${esc(rec.title)}</div>`;
+    return `<div class="bubble event" data-ev="${rec.id}"><b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> ${esc(rec.title)}${rec.note ? '<small>有備註</small>' : ''}</div>`;
   }
   const sign = rec.type === 'income' ? '+' : rec.type === 'expense' ? '-' : '⇄';
   return `<div class="bubble tx ${rec.type}" data-edit="transactions:${rec.id}">
@@ -44,85 +44,93 @@ function chatView() {
   const banners = [];
   if (d <= 10 && unpaid.length) banners.push(`<div class="banner" data-go="stats">本月要繳卡費 ${money(bills.total)}（${unpaid.map(b => `${b} ${money(bills.bills[b])}`).join('、')}）</div>`);
   if (open) banners.push(`<div class="banner warn" data-go="cal">有 ${open} 筆過去的工作還沒記收入</div>`);
-  const p = state.pending;
   return `${banners.join('')}
-  <div id="log">${L.recent().map(itemLine).join('') || '<p class="empty">打一行字就能記帳，例如：<br><code>-120晚餐</code>　<code>11/5 03.西屯太平0.0 王小明 賴</code></p>'}</div>
-  ${p ? `<div class="confirm">
-      <div class="sum">✔ ${esc(summarize(p))}</div>
-      ${p.aiNote ? `<div class="muted">${esc(p.aiNote)}</div>` : ''}
-      <div class="row"><button class="primary" data-act="ok">確認</button><button data-act="fix">修改</button><button data-act="no">取消</button></div>
-    </div>` : ''}
+  <div id="log">${L.recent().map(itemLine).join('') || '<p class="empty">打一行字按 Enter 就記好了，例如：<br><code>-120晚餐</code>　<code>1105 11:00 03.西屯太平0.0 王小明 賴</code></p>'}</div>
   ${state.busy ? `<div class="muted center">${esc(state.busy)}</div>` : ''}`;
 }
 
+// 按 Enter 直接存檔，存完馬上出現在行事曆；要改就點那一筆
 async function submitInput(text) {
   let p = parseLine(text, { categories: L.categories() });
   if (!p) return;
   if (p.kind === 'unknown') {
     if (aiReady()) {
       state.busy = 'Claude 解析中…'; render();
-      try { const items = await askClaude('parse', text); p = items.length ? itemsToParsed(text, items) : p; }
+      try { const items = await askClaude('parse', text); p = items.length ? { ...itemsToParsed(text, items), dates: p.dates } : p; }
       catch (e) { toast(e.message); }
       state.busy = '';
     }
-    if (p.kind === 'unknown') { p.kind = 'event'; p.aiNote = aiReady() ? '看不懂這句，先存成記事' : '沒有網路或還沒設定 Claude，先存成記事，可再修改'; }
+    if (p.kind === 'unknown') p.kind = 'event';
   }
-  state.pending = p; render();
-  setTimeout(() => $('#log')?.lastElementChild?.scrollIntoView({ block: 'end' }), 0);
-}
-
-async function confirmPending() {
-  const p = state.pending; state.pending = null;
   const saved = await L.saveParsed(p);
-  toast(saved.some(s => s.matched) ? '已找到這筆工作並標記完成' : '已存檔');
+  const days = (p.dates || [p.date]).map(md).join('、');
+  toast(saved.some(s => s.matched) ? '已找到這筆工作，標記完成' : `已記到 ${days}${p.event ? '' : '（' + summarize(p).split('｜').slice(0, 2).join(' ') + '）'}`);
   render();
 }
 
-// ================= 行事曆 =================
+// ================= 行事曆（仿 TimeTree：格子裡直接看到當天行程）=================
+const WEEK_MON = ['一', '二', '三', '四', '五', '六', '日'];
+const evTitle = e => e.title || [e.codeRaw && e.codeRaw + '.', e.route, e.client].filter(Boolean).join(' ');
+const txLabel = t => `${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '⇄'}${Math.round(t.amount).toLocaleString('zh-TW')} ${t.note || t.category}`;
+
+function dayItems(date) {
+  const evs = L.eventsOn(date).sort((a, b) => (a.time ? 1 : 0) - (b.time ? 1 : 0) || (a.time || '').localeCompare(b.time || ''));
+  const txs = L.txsOn(date).filter(t => !t.eventId);
+  return { evs, txs };
+}
+
 function calView() {
   const ym = state.calYm, [y, m] = ym.split('-').map(Number);
-  const first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
+  const first = new Date(y, m - 1, 1), lead = (first.getDay() + 6) % 7;
+  const start = new Date(y, m - 1, 1 - lead), weeks = Math.ceil((lead + new Date(y, m, 0).getDate()) / 7);
   const cells = [];
-  for (let i = 0; i < first.getDay(); i++) cells.push('<div class="cell blank"></div>');
-  for (let d = 1; d <= days; d++) {
-    const date = ymd(new Date(y, m - 1, d)), info = L.dayInfo(date);
-    const jobs = info.events.filter(e => e.type === 'job'), evs = info.events.filter(e => e.type !== 'job');
-    const late = jobs.some(j => !j.done && date < today());
-    const personal = info.txs.filter(t => t.type === 'expense' && t.biz !== '公').length;
-    cells.push(`<div class="cell ${jobs.length ? 'has-job' : ''} ${late ? 'late' : ''} ${date === today() ? 'today' : ''}" data-day="${date}">
-      <span class="dn">${d}</span>
-      <span class="dots">${jobs.map(() => '<i class="d job"></i>').join('')}${evs.length ? '<i class="d ev"></i>' : ''}${personal ? '<i class="d exp"></i>' : ''}</span>
-      ${info.workIncome ? `<span class="inc">${(info.workIncome / 1000).toFixed(1)}k</span><span class="net">淨${(info.net / 1000).toFixed(1)}k</span>` : ''}
-    </div>`);
+  for (let i = 0; i < weeks * 7; i++) {
+    const dt = new Date(start); dt.setDate(start.getDate() + i);
+    const date = ymd(dt), other = dt.getMonth() !== m - 1, { evs, txs } = dayItems(date);
+    const lines = [
+      ...evs.map(e => {
+        const late = e.type === 'job' && !e.done && date < today();
+        const cls = e.type === 'job' ? (e.done ? 'job done' : 'job') : 'ev';
+        return `<div class="chip ${cls} ${e.time ? 'timed' : 'allday'} ${late ? 'late' : ''}">${e.time ? `<i></i>` : ''}${esc(evTitle(e))}</div>`;
+      }),
+      ...txs.map(t => `<div class="chip tx ${t.type}">${esc(txLabel(t))}</div>`),
+    ];
+    const max = 4, more = lines.length - max;
+    cells.push(`<div class="cell ${other ? 'other' : ''} ${date === today() ? 'today' : ''} w${dt.getDay()}" data-day="${date}">
+      <span class="dn">${dt.getDate()}</span>${lines.slice(0, more > 0 ? max - 1 : max).join('')}${more > 0 ? `<div class="more">+${more + 1}</div>` : ''}</div>`);
   }
-  const s = L.monthStats(ym);
-  return `<div class="month-nav"><button data-cal="-1">‹</button><h2>${y} 年 ${m} 月</h2><button data-cal="1">›</button></div>
-    <div class="legend"><i class="d job"></i>工作 <i class="d ev"></i>行程 <i class="d exp"></i>個人支出 <span class="late-key">紅框</span>未記收入</div>
-    <div class="grid">${WEEK.map(w => `<div class="wk">${w}</div>`).join('')}${cells.join('')}</div>
-    <div class="cards three"><div class="card"><small>工作收入</small><b class="g">${money(s.workIncome)}</b></div>
-      <div class="card"><small>工作成本</small><b class="r">${money(s.workCost)}</b></div>
-      <div class="card"><small>淨賺</small><b>${money(s.workNet)}</b></div></div>`;
+  return `<div class="cal-head"><h2>${y}年${m}月</h2>
+      <div><button data-cal-today>今天</button><button data-cal="-1">‹</button><button data-cal="1">›</button></div></div>
+    <div class="grid tt" id="calgrid">${WEEK_MON.map((w, i) => `<div class="wk ${i === 6 ? 'sun' : i === 5 ? 'sat' : ''}">${w}</div>`).join('')}${cells.join('')}</div>`;
 }
 
 function daySheet(date) {
-  const info = L.dayInfo(date), code = L.codes();
-  const jobs = info.events.filter(e => e.type === 'job'), evs = info.events.filter(e => e.type !== 'job');
-  const d = new Date(date);
-  openModal(`<h3>${md(date)}（${WEEK[d.getDay()]}）</h3>
-    ${jobs.map(j => `<div class="item ${!j.done && date < today() ? 'late' : ''}">
-      <div class="top" data-edit="events:${j.id}"><b>${esc(j.codeRaw)}．${esc(j.from)}${j.to && j.to !== j.from ? '→' + esc(j.to) : ''}</b>
-        <span>${j.time || ''}</span></div>
-      <div class="muted">${j.truck} 噸｜${(j.services || []).map(s => esc(code[s] || s)).join('、')}${j.fromFloor !== '' && j.fromFloor != null ? `｜樓層 ${esc(j.fromFloor)}→${esc(j.toFloor)}` : ''}</div>
-      <div class="muted">${esc(j.client)} ${esc(j.contact)}</div>
-      ${j.done ? `<span class="tag ok">實收 ${money(j.amount)}</span>` : `<div class="row"><input type="number" inputmode="numeric" placeholder="實收金額" data-amt="${j.id}"><button class="primary" data-done="${j.id}">完成</button></div>`}
-    </div>`).join('') || '<p class="muted">這天沒有工作</p>'}
-    ${evs.length ? `<h4>行程</h4>${evs.map(e => `<div class="item" data-edit="events:${e.id}">${e.time ? e.time + ' ' : ''}${esc(e.title)}</div>`).join('')}` : ''}
-    ${info.txs.length ? `<h4>收支</h4>${info.txs.map(t => `<div class="item tx ${t.type}" data-edit="transactions:${t.id}">
-      ${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '⇄'}${money(t.amount)} ${esc(t.category)}｜${esc(t.account || t.to)}｜${esc(t.biz)} <small>${esc(t.note)}</small></div>`).join('')}` : ''}
-    <div class="cards three"><div class="card"><small>當天工作收入</small><b class="g">${money(info.workIncome)}</b></div>
-      <div class="card"><small>當天工作成本</small><b class="r">${money(info.workCost)}</b></div>
-      <div class="card"><small>當天淨賺</small><b>${money(info.net)}</b></div></div>
-    <div class="row"><button data-prefill="${md(date)} ">在這天新增</button><button data-close>關閉</button></div>`);
+  const info = L.dayInfo(date), { evs, txs } = dayItems(date), d = new Date(date);
+  const row = e => {
+    const late = e.type === 'job' && !e.done && date < today();
+    return `<div class="trow ${late ? 'late' : ''}" data-ev="${e.id}"><span class="tt-time">${e.time || '全天'}</span>
+      <span class="bar ${e.type === 'job' ? 'job' : 'ev'}"></span><span class="tt-title">${esc(evTitle(e))}
+      ${e.type === 'job' ? `<small>${e.done ? '實收 ' + money(e.amount) : late ? '還沒記收入' : '未完成'}</small>` : ''}${e.note ? '<small>有備註</small>' : ''}</span></div>`;
+  };
+  openModal(`<div class="sheet-head"><h3>${+date.slice(5, 7)}月${+date.slice(8)}日（${WEEK[d.getDay()]}）</h3><button data-close>✕</button></div>
+    ${evs.map(row).join('') || '<p class="muted">沒有行程</p>'}
+    ${txs.map(t => `<div class="trow" data-edit="transactions:${t.id}"><span class="tt-time">${t.time || ''}</span>
+      <span class="bar ${t.type}"></span><span class="tt-title">${esc(txLabel(t))}<small>${esc(t.category)}｜${esc(t.account || t.to)}${t.biz === '公' ? '｜公' : ''}</small></span></div>`).join('')}
+    ${info.workIncome || info.workCost ? `<p class="muted">當天工作收入 ${money(info.workIncome)}｜成本 ${money(info.workCost)}｜淨賺 <b>${money(info.net)}</b></p>` : ''}
+    <button class="primary wide" data-prefill="${date.slice(5, 7)}${date.slice(8)} ">＋ 在這天新增</button>`);
+}
+
+// 點一筆行程：看完整內容（含貼上的估價單）
+function eventDetail(id) {
+  const e = db.get('events', id); if (!e) return;
+  const code = L.codes(), d = new Date(e.date), late = e.type === 'job' && !e.done && e.date < today();
+  openModal(`<div class="sheet-head"><button data-day="${e.date}">‹ ${+e.date.slice(5, 7)}/${+e.date.slice(8)}</button><button data-close>✕</button></div>
+    <h3 class="ev-title">${esc(evTitle(e))}</h3>
+    <p>${+e.date.slice(5, 7)}月${+e.date.slice(8)}日（${WEEK[d.getDay()]}）${e.time ? ' ' + e.time : '　全天'}</p>
+    ${e.type === 'job' ? `<p class="muted">${e.truck} 噸｜${(e.services || []).map(s => esc(code[s] || s)).join('、')}${e.from ? `｜${esc(e.from)}→${esc(e.to)}` : ''}${e.fromFloor !== '' && e.fromFloor != null ? `｜樓層 ${esc(e.fromFloor)}→${esc(e.toFloor)}` : ''}${e.contact ? '｜' + esc(e.contact) : ''}</p>
+      ${e.done ? `<p><span class="tag ok">實收 ${money(e.amount)}</span></p>` : `<div class="row ${late ? 'late' : ''}"><input type="number" inputmode="numeric" placeholder="實收金額" data-amt="${e.id}"><button class="primary" data-done="${e.id}">完成</button></div>`}` : ''}
+    ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
+    <div class="row"><button data-edit="events:${e.id}">編輯</button><button data-copy="${e.id}">複製文字</button></div>`);
 }
 
 async function markDone(id) {
@@ -131,7 +139,7 @@ async function markDone(id) {
   const j = db.get('events', id);
   await db.update('events', id, { done: true, amount: amt });
   await db.add('transactions', { type: 'income', amount: amt, category: '搬家', work: true, biz: '公', account: '現金', date: j.date, time: j.time || '', note: j.title, eventId: id, source: '手動' });
-  toast('已標記完成'); daySheet(j.date); render();
+  toast('已標記完成'); eventDetail(id); render();
 }
 
 // ================= 統計 =================
@@ -209,7 +217,8 @@ function editRecord(col, id, draft) {
       ${f('代號', 'codeRaw', r.codeRaw)}${f('起點', 'from', r.from)}${f('終點', 'to', r.to)}
       ${f('起點樓層', 'fromFloor', r.fromFloor)}${f('終點樓層', 'toFloor', r.toFloor)}${f('客戶', 'client', r.client)}${f('聯絡方式', 'contact', r.contact)}
       <label class="check"><input type="checkbox" name="done" ${r.done ? 'checked' : ''}> 已完成</label>${f('實收金額', 'amount', r.amount || '', 'number')}
-    </fieldset>`;
+    </fieldset>
+    <label>備註（完整內容）<textarea name="note" rows="6">${esc(r.note || '')}</textarea></label>`;
   else body = `
     <label>收支<select name="type">${[['expense', '支出'], ['income', '收入'], ['transfer', '繳卡費（轉帳）']].map(([v, t]) => `<option value="${v}" ${r.type === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     ${f('金額', 'amount', r.amount, 'number')}${f('日期', 'date', r.date, 'date')}${f('時間', 'time', r.time, 'time')}
@@ -379,31 +388,51 @@ async function doExport(range) {
   } catch (e) { toast(e.message); }
 }
 
+// 快捷按鈕：最近手動記過的帳（不同金額／項目各一個），點一下就再記一筆今天的
+function recentTx() {
+  const seen = new Set(), out = [];
+  const list = db.all('transactions').filter(t => t.source === '手動' && (t.type === 'expense' || t.type === 'income') && !t.eventId)
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  for (const t of list) {
+    const key = `${t.type}|${t.amount}|${t.note || t.category}|${t.account}`;
+    if (seen.has(key)) continue;
+    seen.add(key); out.push(t);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+const txInput = t => `${t.type === 'income' ? '+' : '-'}${t.amount}${t.note || t.category}${BANKS.includes(t.account) ? ' ' + t.account : ''}`;
+
 // ================= 主框架 =================
 function render() {
   const view = $('#view');
   view.innerHTML = state.tab === 'chat' ? chatView() : state.tab === 'cal' ? calView() : statsView();
   document.querySelectorAll('nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
   $('#composer').classList.toggle('hide', state.tab !== 'chat');
-  $('#shortcuts').innerHTML = db.all('shortcuts').sort((a, b) => a.order - b.order).map(s => `<button data-sc="${esc(s.input)}">${esc(s.label)}</button>`).join('');
+  $('#shortcuts').innerHTML = recentTx().map(t => `<button data-sc="${t.id}">${esc(txLabel(t))}</button>`).join('');
   $('#net').textContent = navigator.onLine ? '' : '離線中';
   if (state.tab === 'chat') { const log = $('#log'); if (log) log.scrollTop = log.scrollHeight; window.scrollTo(0, document.body.scrollHeight); }
+  else if (state.lastTab !== state.tab) window.scrollTo(0, 0);
+  state.lastTab = state.tab;
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-tab],[data-edit],[data-act],[data-cal],[data-stats],[data-day],[data-done],[data-close],[data-sc],[data-prefill],[data-go],[data-export],#gear');
+  const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-cal],[data-cal-today],[data-stats],[data-done],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-copy],[data-day],#gear');
   if (!t) return;
   const d = t.dataset;
   if (t.id === 'gear') return settingsView();
   if (d.tab) { state.tab = d.tab; render(); if (d.tab === 'chat') $('#input').focus(); }
   else if (d.go) { state.tab = d.go; render(); }
   else if (d.edit) { const [col, id] = d.edit.split(':'); editRecord(col, id); }
+  else if (d.ev) eventDetail(d.ev);
   else if (d.cal) { state.calYm = ymAdd(state.calYm, +d.cal); render(); }
+  else if (d.calToday !== undefined) { state.calYm = today().slice(0, 7); render(); }
   else if (d.stats) { state.statsYm = ymAdd(state.statsYm, +d.stats); render(); }
-  else if (d.day) daySheet(d.day);
   else if (d.done) markDone(d.done);
   else if (d.close !== undefined) closeModal();
-  else if (d.sc) submitInput(d.sc);
+  else if (d.copy) { const ev = db.get('events', d.copy); navigator.clipboard?.writeText(`${evTitle(ev)}${ev.note ? '\n' + ev.note : ''}`).then(() => toast('已複製')); }
+  else if (d.day) daySheet(d.day);
+  else if (d.sc) { const tx = db.get('transactions', d.sc); if (tx) submitInput(txInput(tx)); }
   else if (d.prefill) { closeModal(); state.tab = 'chat'; render(); const i = $('#input'); i.value = d.prefill; i.focus(); }
   else if (d.export) doExport(d.export);
   else if (d.act === 'ok') confirmPending();
@@ -423,7 +452,21 @@ $('#composer').addEventListener('submit', e => {
   e.preventDefault();
   const i = $('#input'), v = i.value.trim();
   if (!v) return;
-  i.value = ''; submitInput(v); i.focus();
+  i.value = ''; grow(); submitInput(v); i.focus();
+});
+// Enter 送出；要換行用 Shift＋Enter（貼上的多行文字會保留）
+const grow = () => { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 160) + 'px'; };
+$('#input').addEventListener('input', grow);
+$('#input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
+});
+// 行事曆左右滑換月
+let touchX = null;
+document.addEventListener('touchstart', e => { touchX = e.target.closest('#calgrid') ? e.touches[0].clientX : null; }, { passive: true });
+document.addEventListener('touchend', e => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+  if (Math.abs(dx) > 60) { state.calYm = ymAdd(state.calYm, dx < 0 ? 1 : -1); render(); }
 });
 window.addEventListener('online', render);
 window.addEventListener('offline', render);

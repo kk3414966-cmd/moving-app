@@ -28,7 +28,8 @@ function saveLocal() {
 }
 
 export async function init() {
-  if (!firebaseConfig) { loadLocal(); mode = 'local'; notify(); return { mode }; }
+  // 網址加 ?local 可用本機試用模式（測試用）
+  if (!firebaseConfig || new URLSearchParams(location.search).has('local')) { loadLocal(); mode = 'local'; notify(); return { mode }; }
   const app = await import(`${FB}/firebase-app.js`);
   authMod = await import(`${FB}/firebase-auth.js`);
   fs = await import(`${FB}/firebase-firestore.js`);

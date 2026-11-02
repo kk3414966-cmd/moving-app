@@ -63,6 +63,10 @@ export async function saveParsed(p, source = '手動') {
       p.txs.forEach(t => { if (t.matchJob) t.date = open.date; });
     } else {
       const r = await db.add('events', ev); eventId = r.id; saved.push({ col: 'events', id: r.id });
+      // 「1105、06、09~12」這種好幾天的行程，每一天都建一筆
+      for (const d of (p.dates || []).slice(1)) {
+        const extra = await db.add('events', { ...ev, date: d, done: false, amount: 0 }); saved.push({ col: 'events', id: extra.id });
+      }
     }
   }
   for (const t of p.txs) {

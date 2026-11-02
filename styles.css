@@ -117,6 +117,52 @@ fieldset { border: 1px solid var(--line); border-radius: 10px; }
 .warn { color: var(--red); }
 .login { text-align: center; padding: 60px 20px; }
 
+/* 輸入框：多行、自動長高 */
+.inputrow { align-items: flex-end; }
+#input { resize: none; font-size: 17px; line-height: 1.4; max-height: 160px; overflow-y: auto; }
+.bubble small { display: block; }
+
+/* 行事曆（仿 TimeTree） */
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.cal-head h2 { font-size: 20px; margin: 0; }
+.cal-head button { padding: 4px 10px; margin-left: 4px; }
+main:has(#calgrid) { padding: 8px 4px; }
+.grid.tt { gap: 0; background: var(--card); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.grid.tt .wk { padding: 4px 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 12px; }
+.grid.tt .wk.sun, .grid.tt .w0 .dn { color: var(--red); }
+.grid.tt .wk.sat, .grid.tt .w6 .dn { color: var(--blue); }
+.grid.tt .cell { min-height: 96px; border-radius: 0; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 2px 1px; gap: 1px; background: var(--card); }
+.grid.tt .cell.other { background: #f7f8fa; }
+.grid.tt .cell.other .dn, .grid.tt .cell.other .chip { opacity: .45; }
+.grid.tt .cell.today { background: #eef4ff; }
+.grid.tt .dn { font-size: 12px; font-weight: 600; padding-left: 2px; }
+.grid.tt .cell.today .dn { background: var(--navy); color: #fff; border-radius: 9px; padding: 0 5px; }
+.chip { font-size: 10.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: clip; border-radius: 3px; padding: 0 2px; }
+.chip.allday.ev { background: var(--blue); color: #fff; }
+.chip.allday.job { background: var(--orange); color: #fff; }
+.chip.timed { color: var(--ink); display: flex; align-items: center; gap: 2px; }
+.chip.timed i { flex: none; width: 3px; height: 10px; border-radius: 2px; background: var(--blue); }
+.chip.timed.job i { background: var(--orange); }
+.chip.job.done { opacity: .75; }
+.chip.late { outline: 1.5px solid var(--red); }
+.chip.tx { font-size: 10px; }
+.chip.tx.expense { color: var(--red); } .chip.tx.income { color: var(--green); }
+.more { font-size: 10px; color: var(--muted); padding-left: 2px; }
+
+/* 單日清單、行程內容 */
+.sheet-head { display: flex; justify-content: space-between; align-items: center; }
+.sheet-head button { border: none; background: none; font-size: 18px; padding: 4px 6px; color: var(--navy); }
+.trow { display: flex; align-items: stretch; gap: 8px; padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; background: var(--card); }
+.trow.late { background: var(--warn-bg); }
+.tt-time { width: 44px; flex: none; font-size: 13px; color: var(--muted); }
+.trow .bar { width: 4px; border-radius: 2px; flex: none; background: var(--blue); }
+.trow .bar.job { background: var(--orange); } .trow .bar.expense { background: var(--red); } .trow .bar.income { background: var(--green); }
+.tt-title { flex: 1; }
+.tt-title small { display: block; color: var(--muted); }
+.ev-title { font-size: 20px; color: var(--ink) !important; word-break: break-all; }
+.note { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 15px; }
+button.wide { width: 100%; margin-top: 12px; padding: 12px; }
+
 #toast { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); background: #222d; color: #fff; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity .2s; z-index: 30; pointer-events: none; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 @media (max-width: 380px) { .cards.three { grid-template-columns: 1fr 1fr; } .card b { font-size: 16px; } }
