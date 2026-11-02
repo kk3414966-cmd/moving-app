@@ -1,0 +1,140 @@
+// 存檔與統計：工作配對、當天成本、每月報表、卡費。
+import * as db from './store.js';
+import { DEFAULT_CATEGORIES, DEFAULT_CODES, BANKS, ymd, parseCode } from './parser.js';
+
+export const codeInfo = raw => { const c = parseCode(raw || ''); return { truck: c.truck, services: c.services }; };
+
+export const ACCOUNTS = [
+  { id: 'cash', name: '現金', kind: '現金', use: '混用' },
+  { id: 'bank', name: '銀行戶頭', kind: '銀行', use: '混用' },
+  ...BANKS.map(b => ({ id: 'card-' + b, name: b, kind: '信用卡', use: '混用', sender: '' })),
+];
+
+// 第一次使用時放入預設資料
+export async function seed() {
+  if (!db.all('accounts').length) await db.addMany('accounts', ACCOUNTS);
+  if (!db.all('categories').length) await db.addMany('categories', DEFAULT_CATEGORIES.map((c, i) => ({ ...c, id: 'cat' + i, order: i })));
+  if (!db.all('shortcuts').length) await db.addMany('shortcuts', [
+    { id: 'sc1', label: '加油 $500', input: '-500加油', order: 1 },
+    { id: 'sc2', label: '便當 $100', input: '-100便當', order: 2 },
+    { id: 'sc3', label: '幫手 $1500', input: '-$1500幫手', order: 3 },
+  ]);
+  if (!db.get('settings', 'main')) await db.add('settings', { id: 'main', codes: DEFAULT_CODES, defaultAccount: '現金', pdfPasswords: {} });
+}
+
+export const codes = () => db.settings().codes || DEFAULT_CODES;
+export const categories = () => db.all('categories').sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+export const catOf = name => categories().find(c => c.name === name);
+export const isCard = name => BANKS.includes(name);
+
+export const eventsOn = date => db.all('events').filter(e => e.date === date).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+export const txsOn = date => db.all('transactions').filter(t => t.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+export const hasJob = date => db.all('events').some(e => e.date === date && e.type === 'job');
+
+// 找出要被「$金額 …」標記完成的那筆未完成工作
+function findOpenJob(ev) {
+  const key = s => (s || '').replace(/\s+/g, '');
+  const cands = db.all('events').filter(e => e.type === 'job' && !e.done &&
+    (key(e.title) === key(ev.title) || (e.codeRaw === ev.codeRaw && e.client && e.client === ev.client)));
+  if (!cands.length) return null;
+  const dist = e => Math.abs(new Date(e.date) - new Date(ev.date));
+  return cands.sort((a, b) => dist(a) - dist(b))[0];
+}
+
+// 交通類支出：當天有工作才算「公」；幫手、修車、收購等工作成本一律算「公」
+const DAY_BASED = ['加油', '停車', '過路費', '租車'];
+function bizFor(tx, date) {
+  if (tx.type !== 'expense') return tx.type === 'income' && tx.work ? '公' : (tx.type === 'income' ? '私' : '');
+  const c = catOf(tx.category);
+  if (!c?.work) return '私';
+  return !DAY_BASED.includes(c.name) || hasJob(date) ? '公' : '私';
+}
+
+/** 把確認卡片上的解析結果寫入資料庫，回傳寫了哪些東西 */
+export async function saveParsed(p, source = '手動') {
+  const saved = [];
+  let eventId = null;
+  if (p.event) {
+    const ev = { ...p.event, raw: p.raw, source };
+    const open = ev.type === 'job' && ev.done ? findOpenJob(ev) : null;
+    if (open) {
+      await db.update('events', open.id, { done: true, amount: ev.amount, doneRaw: p.raw });
+      eventId = open.id; saved.push({ col: 'events', id: open.id, matched: true });
+      p.txs.forEach(t => { if (t.matchJob) t.date = open.date; });
+    } else {
+      const r = await db.add('events', ev); eventId = r.id; saved.push({ col: 'events', id: r.id });
+    }
+  }
+  for (const t of p.txs) {
+    const date = t.date || p.date;
+    const tx = { ...t, date, time: t.time || p.time || '', source, raw: p.raw };
+    delete tx.matchJob;
+    if (eventId && p.event?.type === 'job' && t.type === 'income') tx.eventId = eventId;
+    if (tx.type !== 'transfer' && !tx.biz) tx.biz = bizFor(tx, date);
+    if (!tx.account && tx.type !== 'transfer') tx.account = db.settings().defaultAccount || '現金';
+    const r = await db.add('transactions', tx); saved.push({ col: 'transactions', id: r.id });
+  }
+  return saved;
+}
+
+// ---- 統計 ----
+const sum = (list, f = x => x.amount) => list.reduce((s, x) => s + (+f(x) || 0), 0);
+export const monthOf = d => d.slice(0, 7);
+
+export function dayInfo(date) {
+  const txs = txsOn(date);
+  const workIncome = sum(txs.filter(t => t.type === 'income' && t.biz === '公'));
+  const workCost = sum(txs.filter(t => t.type === 'expense' && t.biz === '公'));
+  return { events: eventsOn(date), txs, workIncome, workCost, net: workIncome - workCost };
+}
+
+export function monthStats(ym) {
+  const txs = db.all('transactions').filter(t => monthOf(t.date) === ym);
+  const jobs = db.all('events').filter(e => e.type === 'job' && monthOf(e.date) === ym);
+  const inc = txs.filter(t => t.type === 'income'), exp = txs.filter(t => t.type === 'expense');
+  const workInc = inc.filter(t => t.biz === '公'), workExp = exp.filter(t => t.biz === '公'), persExp = exp.filter(t => t.biz !== '公');
+  const groupBy = (list, key) => list.reduce((m, x) => (m[key(x)] = (m[key(x)] || 0) + (+x.amount || 0), m), {});
+
+  const service = {};
+  for (const j of jobs) for (const s of j.services || []) {
+    const o = service[s] = service[s] || { count: 0, done: 0, total: 0 };
+    o.count++; if (j.done) { o.done++; o.total += +j.amount || 0; }
+  }
+  const t35 = jobs.filter(j => j.truck === '3.5').length;
+  return {
+    ym, workIncome: sum(workInc), workCost: sum(workExp), workNet: sum(workInc) - sum(workExp),
+    workCostBy: groupBy(workExp, t => t.category), helper: sum(workExp.filter(t => t.category === '幫手')),
+    jobs: jobs.length, jobsDone: jobs.filter(j => j.done).length, openJobs: jobs.filter(j => !j.done && j.date < ymd(new Date())),
+    service, truck: { '3.5': t35, '2.7': jobs.length - t35 },
+    personal: sum(persExp), personalBy: groupBy(persExp, t => t.category),
+    byAccount: groupBy(exp, t => t.account || '現金'),
+    totalIncome: sum(inc), totalExpense: sum(exp), flow: sum(inc) - sum(exp),
+  };
+}
+
+// 本月要繳的卡費 = 上個月各卡消費（扣掉退款）
+export function cardBills(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const prev = ymd(new Date(y, m - 2, 1)).slice(0, 7);
+  const txs = db.all('transactions').filter(t => monthOf(t.date) === prev && isCard(t.account));
+  const bills = Object.fromEntries(BANKS.map(b => [b, 0]));
+  for (const t of txs) bills[t.account] += t.type === 'expense' ? +t.amount : t.type === 'income' ? -t.amount : 0;
+  const paid = db.all('transactions').filter(t => t.type === 'transfer' && monthOf(t.date) === ym);
+  const paidBy = Object.fromEntries(BANKS.map(b => [b, sum(paid.filter(t => t.to === b))]));
+  return { prev, bills, total: sum(Object.values(bills), x => x), paidBy };
+}
+
+export function recent(n = 40) {
+  const list = [
+    ...db.all('events').map(e => ({ col: 'events', rec: e })),
+    ...db.all('transactions').filter(t => !t.eventId).map(t => ({ col: 'transactions', rec: t })),
+  ];
+  return list.sort((a, b) => (b.rec.createdAt || '').localeCompare(a.rec.createdAt || '')).slice(0, n).reverse();
+}
+
+// 去重：同帳戶、同金額、日期差 2 天內
+export function findDuplicate(tx) {
+  if (tx.externalId && db.all('transactions').some(t => t.externalId === tx.externalId)) return true;
+  return db.all('transactions').some(t => t.account === tx.account && +t.amount === +tx.amount && t.type === tx.type &&
+    Math.abs(new Date(t.date) - new Date(tx.date)) <= 2 * 864e5);
+}

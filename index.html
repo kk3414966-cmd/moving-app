@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#1f3864">
+  <title>搬家記帳</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>搬家記帳</h1><span id="net"></span>
+    <button id="gear" aria-label="設定">⚙</button>
+  </header>
+  <main id="view"></main>
+  <div id="bottom">
+    <form id="composer" autocomplete="off">
+      <div id="shortcuts"></div>
+      <div class="inputrow">
+        <input id="input" enterkeyhint="send" placeholder="例：-120晚餐、11/5 03.西屯太平0.0 王小明 賴">
+        <button class="primary" type="submit">記</button>
+      </div>
+    </form>
+    <nav>
+      <button data-tab="chat">對話框</button>
+      <button data-tab="cal">行事曆</button>
+      <button data-tab="stats">統計</button>
+    </nav>
+  </div>
+  <div id="modal"><div id="modal-body"></div></div>
+  <div id="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
