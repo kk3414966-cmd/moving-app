@@ -79,6 +79,18 @@ async function pool(list, n, fn) {
   return out;
 }
 
+// 有些帳單 PDF 的明細會被讀成兩遍：每一筆都剛好出現偶數次、加起來是應繳金額的兩倍，就只留一半
+function undoubled(items) {
+  const key = it => [it.kind, it.date, it.amount, it.merchant || it.title].join('|');
+  const spend = items.filter(it => it.kind !== 'transfer'), bill = items.find(it => it.kind === 'transfer');
+  const count = {}; spend.forEach(it => count[key(it)] = (count[key(it)] || 0) + 1);
+  if (!spend.length || !Object.values(count).every(n => n % 2 === 0)) return items;
+  const total = l => l.reduce((s, it) => s + (it.kind === 'income' ? -it.amount : it.amount), 0);
+  const seen = {}, half = spend.filter(it => (seen[key(it)] = (seen[key(it)] || 0) + 1) <= count[key(it)] / 2);
+  if (bill && Math.abs(total(spend) - bill.amount) < Math.abs(total(half) - bill.amount)) return items;
+  return bill ? [...half, bill] : half;
+}
+
 /** 讀最近 days 天的銀行信，回傳待確認的消費清單；history＝改抓 days 天以前的所有帳單 */
 export async function fetchCardTransactions(days = 40, onProgress = () => {}, history = false) {
   await connect();
@@ -123,7 +135,8 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}, hi
       const ask = task === 'statement'
         ? `卡別：${bank}\n另外請在最後加一筆 kind=transfer、title=本期應繳總額、amount=本期應繳總金額（無需繳款填 0）、date=繳款截止日（YYYY-MM-DD）。\n帳單主旨：${subject}\n${text.slice(0, 55000)}`
         : `卡別：${bank}\n${text.slice(0, 55000)}`;
-      const found = await askClaude(task, ask);
+      let found = await askClaude(task, ask);
+      if (task === 'statement') found = undoubled(found);
       const out = [];
       found.forEach((it, i) => {
         if (it.kind === 'transfer') { bills.push({ bank, amount: it.amount, dueDate: it.date, subject, msgId: id }); return; }
