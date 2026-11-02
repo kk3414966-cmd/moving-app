@@ -348,7 +348,8 @@ function settingsView() {
   <section><h4>Gmail 自動記帳</h4>
     <p class="muted">${st.gmailLinked ? '已連結過 Gmail。' : '尚未連結。'}只要求「唯讀」權限，只搜尋四家銀行的信，不會要你的 Gmail 密碼。</p>
     <div class="row"><button class="primary" data-act="gmail">讀取 Gmail 刷卡紀錄（最近 40 天）</button>
-      <button data-act="gmail-reset">清除後全部重新抓（最近 90 天）</button></div>
+      <button data-act="gmail-reset">清除後全部重新抓（最近 90 天）</button>
+      <button data-act="gmail-history">抓以前的帳單（90 天以前，全部）</button></div>
     <p class="muted">信用卡電子帳單 PDF 的密碼（多半是身分證字號），只存在你自己的資料裡：</p>
     ${BANKS.map(b => `<label>${b}<input type="password" data-pw="${b}" value="${esc(st.pdfPasswords?.[b] || '')}" autocomplete="off"></label>`).join('')}
     <label>寄件者 Email（選填，讓搜尋更準）${accs.filter(a => a.kind === '信用卡').map(a => `<input data-sender="${a.id}" placeholder="${a.name} 的寄件者，例如 service@xxx.com.tw" value="${esc(a.sender || '')}">`).join('')}</label>
@@ -508,10 +509,11 @@ function reviewImport(items, title, extra = {}) {
   };
 }
 
-async function readGmail(reset) {
+async function readGmail(reset, history) {
   const ready = G.connect().catch(e => e); // 一按就先要 Google 授權，手機才不會擋視窗
   try {
-    if (reset) {
+    if (history) toast('連結 Gmail 中…（以前的帳單比較多，要等幾分鐘）');
+    else if (reset) {
       // 清掉之前從 Gmail 匯入的，全部重新抓
       if (!confirm('要清除之前從 Gmail 匯入的信用卡資料，全部重新抓一次嗎？（你自己記的帳不會動）')) return;
       const prev = db.all('transactions').filter(t => t.source === 'Gmail');
@@ -520,9 +522,9 @@ async function readGmail(reset) {
       toast(`已清除 ${prev.length} 筆，重新抓取中…`);
     } else toast('連結 Gmail 中…');
     const auth = await ready; if (auth instanceof Error) throw auth;
-    const r = await G.fetchCardTransactions(reset ? 90 : 40, msg => toast(msg));
-    if (!r.items.length && !r.bills.length) return toast('沒有找到新的刷卡紀錄');
-    reviewImport(r.items, 'Gmail 刷卡紀錄', r);
+    const r = await G.fetchCardTransactions(reset || history ? 90 : 40, msg => toast(msg), history);
+    if (!r.items.length && !r.bills.length) return toast(history ? '沒有找到以前的帳單' : '沒有找到新的刷卡紀錄');
+    reviewImport(r.items, history ? 'Gmail 以前的帳單' : 'Gmail 刷卡紀錄', r);
   } catch (e) { toast(e.message); }
 }
 
@@ -627,6 +629,7 @@ document.addEventListener('click', async e => {
   }
   else if (d.act === 'gmail') readGmail();
   else if (d.act === 'gmail-reset') readGmail(true);
+  else if (d.act === 'gmail-history') readGmail(false, true);
   else if (d.act === 'cat-editor') openCategoryEditor();
   else if (d.act === 'logout') db.logout();
   else if (d.act === 'login') db.login().catch(err => toast('登入失敗：' + err.message));

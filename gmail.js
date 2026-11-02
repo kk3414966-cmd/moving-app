@@ -17,6 +17,14 @@ const DEFAULT_QUERY = {
   玉山: 'from:estatement@esunbank.com subject:信用卡電子帳單',
 };
 
+// 以前的資料只抓每月帳單（帳單已經有全部明細，刷卡通知信就不用一封一封讀，省錢也比較快）
+const STATEMENT_QUERY = {
+  台新: DEFAULT_QUERY.台新,
+  匯豐: 'from:cards@estatements.hsbc.com.tw subject:信用卡帳單',
+  聯邦: 'from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知',
+  玉山: DEFAULT_QUERY.玉山,
+};
+
 let gis;
 export function preload() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -71,8 +79,8 @@ async function pool(list, n, fn) {
   return out;
 }
 
-/** 讀最近 days 天的銀行信，回傳待確認的消費清單 */
-export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
+/** 讀最近 days 天的銀行信，回傳待確認的消費清單；history＝改抓 days 天以前的所有帳單 */
+export async function fetchCardTransactions(days = 40, onProgress = () => {}, history = false) {
   await connect();
   const accounts = db.all('accounts');
   const done = new Set(db.all('transactions').map(t => t.externalId).filter(Boolean).map(x => x.split('#')[0]));
@@ -82,10 +90,16 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
     // 使用者填的寄件者：去掉 < > 空白，已經在預設清單裡的就不重複加
     const extra = (accounts.find(a => a.name === bank)?.sender || '').replace(/[<>\s]/g, '').split(/[,，;；]/)
       .filter(s => s.includes('@') && !DEFAULT_QUERY[bank].includes(s));
-    const q = `(${DEFAULT_QUERY[bank]})${extra.map(s => ` OR from:${s}`).join('')} newer_than:${days}d`;
-    const list = await gget(`messages?maxResults=60&q=${encodeURIComponent(q)}`);
-    for (const { id } of list.messages || []) if (!done.has(id)) jobs.push({ bank, id });
+    const q = history ? `(${STATEMENT_QUERY[bank]}) older_than:${days}d`
+      : `(${DEFAULT_QUERY[bank]})${extra.map(s => ` OR from:${s}`).join('')} newer_than:${days}d`;
+    let page = '';
+    do { // 一頁最多 100 封，以前的帳單可能好幾年份，要一頁一頁翻
+      const list = await gget(`messages?maxResults=100&q=${encodeURIComponent(q)}${page ? '&pageToken=' + page : ''}`);
+      for (const { id } of list.messages || []) if (!done.has(id)) jobs.push({ bank, id });
+      page = history ? list.nextPageToken : '';
+    } while (page);
   }
+  if (history) onProgress(`找到 ${jobs.length} 份以前的帳單`);
   if (!jobs.length) return { items: [], bills: [], replaceIds: [] };
   let finished = 0;
   onProgress(`找到 ${jobs.length} 封銀行信，整理中…`);
