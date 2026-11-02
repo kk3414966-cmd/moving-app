@@ -166,9 +166,16 @@ export function cardBills(ym) {
   const txs = db.all('transactions').filter(t => monthOf(t.date) === prev && isCard(t.account));
   const bills = Object.fromEntries(BANKS.map(b => [b, 0]));
   for (const t of txs) bills[t.account] += t.type === 'expense' ? +t.amount : t.type === 'income' ? -t.amount : 0;
+  // 有抓到帳單的，直接用帳單上的「本期應繳」（截止日在這個月的那一期）
+  const cs = db.settings().cardStatements || {}, dueDate = {}, estimated = {};
+  for (const b of BANKS) {
+    const st = (cs[b] || []).filter(s => (s.dueDate || '').slice(0, 7) === ym);
+    if (st.length) { bills[b] = sum(st); dueDate[b] = st.map(s => s.dueDate).sort().pop(); }
+    else estimated[b] = bills[b] > 0;
+  }
   const paid = db.all('transactions').filter(t => t.type === 'transfer' && monthOf(t.date) === ym);
   const paidBy = Object.fromEntries(BANKS.map(b => [b, sum(paid.filter(t => t.to === b))]));
-  return { prev, bills, total: sum(Object.values(bills), x => x), paidBy };
+  return { prev, bills, total: sum(Object.values(bills), x => x), paidBy, dueDate, estimated };
 }
 
 export function recent(n = 40) {
@@ -180,8 +187,9 @@ export function recent(n = 40) {
 }
 
 // 去重：同帳戶、同金額、日期差 2 天內
-export function findDuplicate(tx) {
-  if (tx.externalId && db.all('transactions').some(t => t.externalId === tx.externalId)) return true;
-  return db.all('transactions').some(t => t.account === tx.account && +t.amount === +tx.amount && t.type === tx.type &&
+export function findDuplicate(tx, skip = new Set()) {
+  const list = db.all('transactions').filter(t => !skip.has(t.id));
+  if (tx.externalId && list.some(t => t.externalId === tx.externalId)) return true;
+  return list.some(t => t.account === tx.account && +t.amount === +tx.amount && t.type === tx.type &&
     Math.abs(new Date(t.date) - new Date(tx.date)) <= 2 * 864e5);
 }

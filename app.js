@@ -164,10 +164,14 @@ function statsView() {
   }
 
   return `${head}
-  <section><h3>本月要繳的卡費</h3><p class="muted">= ${bills.prev.replace('-', ' 年 ')} 月各卡刷的錢</p>
-    <table>${BANKS.map(b => `<tr><td>${b}</td><td>${money(bills.bills[b])}</td><td>${bills.paidBy[b] ? '已繳 ' + money(bills.paidBy[b]) : ''}</td></tr>`).join('')}
-      <tr class="total"><td>合計</td><td>${money(bills.total)}</td><td></td></tr></table>
-    <p class="muted">繳完在對話框打「繳台新 12000」，會記成轉帳，不會重複算成花費。</p></section>`;
+  <section><h3>本月要繳的卡費</h3><p class="muted">照銀行帳單上的「本期應繳」；還沒抓到帳單的標「估計」（用上個月刷的錢估）。</p>
+    <table><tr><th>卡</th><th>應繳</th><th>截止日</th><th></th></tr>${BANKS.map(b => `<tr><td>${b}</td><td>${money(bills.bills[b])}${bills.estimated[b] ? '<small>估計</small>' : ''}</td>
+      <td>${bills.dueDate[b] ? md(bills.dueDate[b]) : ''}</td><td>${bills.paidBy[b] ? '已繳 ' + money(bills.paidBy[b]) : ''}</td></tr>`).join('')}
+      <tr class="total"><td>合計</td><td>${money(bills.total)}</td><td></td><td></td></tr></table>
+    <p class="muted">繳完在對話框打「繳台新 12000」，會記成轉帳，不會重複算成花費。</p></section>
+  <section><h3>刷卡明細 <small class="muted">點一下看那天的行事曆</small></h3>
+    ${BANKS.map(b => { const l = db.all('transactions').filter(t => t.account === b && t.source === 'Gmail' && t.date.slice(0, 7) === bills.prev);
+      return l.length ? `<h4>${b}（${bills.prev.replace('-', '/')} 月刷的）</h4><table>${detailRows(l)}</table>` : ''; }).join('') || '<p class="muted">還沒有從 Gmail 抓到刷卡紀錄</p>'}</section>`;
 }
 
 // ================= 修改視窗 =================
@@ -248,7 +252,8 @@ function settingsView() {
   </section>
   <section><h4>Gmail 自動記帳</h4>
     <p class="muted">${st.gmailLinked ? '已連結過 Gmail。' : '尚未連結。'}只要求「唯讀」權限，只搜尋四家銀行的信，不會要你的 Gmail 密碼。</p>
-    <button class="primary" data-act="gmail">讀取 Gmail 刷卡紀錄（最近 40 天）</button>
+    <div class="row"><button class="primary" data-act="gmail">讀取 Gmail 刷卡紀錄（最近 40 天）</button>
+      <button data-act="gmail-reset">清除後全部重新抓（最近 90 天）</button></div>
     <p class="muted">信用卡電子帳單 PDF 的密碼（多半是身分證字號），只存在你自己的資料裡：</p>
     ${BANKS.map(b => `<label>${b}<input type="password" data-pw="${b}" value="${esc(st.pdfPasswords?.[b] || '')}" autocomplete="off"></label>`).join('')}
     <label>寄件者 Email（選填，讓搜尋更準）${accs.filter(a => a.kind === '信用卡').map(a => `<input data-sender="${a.id}" placeholder="${a.name} 的寄件者，例如 service@xxx.com.tw" value="${esc(a.sender || '')}">`).join('')}</label>
@@ -288,12 +293,15 @@ async function saveSettingsForm(act) {
 }
 
 // 匯入確認清單（Gmail／帳單檔）
-function reviewImport(items, title) {
+function reviewImport(items, title, extra = {}) {
+  const { bills = [], replaceIds = [] } = extra, skip = new Set(replaceIds);
   const errors = items.filter(x => x.error), list = items.filter(x => !x.error);
-  list.forEach(x => { x.dup = L.findDuplicate(x); x.biz = x.biz || '私'; });
+  list.forEach(x => { x.dup = L.findDuplicate(x, skip); x.biz = x.biz || '私'; });
   const cats = L.categories().map(c => c.name);
   openModal(`<h3>${esc(title)}</h3>
     ${errors.map(e => `<p class="warn">${esc(e.error)}</p>`).join('')}
+    ${bills.length ? `<div class="item"><b>帳單應繳金額</b>${bills.map(b => `<div>${esc(b.bank)}：${money(b.amount)}${b.dueDate ? `（${md(b.dueDate)} 前繳）` : ''}</div>`).join('')}</div>` : ''}
+    ${replaceIds.length ? `<p class="muted">有帳單的期間，之前從刷卡通知記的 ${replaceIds.length} 筆會換成帳單上的明細，不會重複算。</p>` : ''}
     <p class="muted">共 ${list.length} 筆，${list.filter(x => x.dup).length} 筆疑似重複（已取消勾選）。看過、改好分類後按確認。</p>
     <div class="imp">${list.map((x, i) => `<div class="item ${x.dup ? 'dup' : ''}"><label class="check"><input type="checkbox" data-pick="${i}" ${x.dup ? '' : 'checked'}>
       ${md(x.date)} ${x.type === 'income' ? '退款 ' : ''}${money(x.amount)}｜${esc(x.account)}｜${esc(x.note)}</label>
@@ -306,17 +314,32 @@ function reviewImport(items, title) {
       const { dup, kindOfMail, ...rest } = x;
       return { ...rest, category: document.querySelector(`[data-cat="${i}"]`).value, biz: document.querySelector(`[data-biz="${i}"]`).value };
     });
+    for (const id of replaceIds) await db.remove('transactions', id);
     await db.addMany('transactions', picked.map(x => ({ ...x, createdAt: new Date().toISOString() })));
+    if (bills.length) {
+      const cs = { ...(db.settings().cardStatements || {}) };
+      for (const b of bills) cs[b.bank] = [...(cs[b.bank] || []).filter(x => x.msgId !== b.msgId), b];
+      await db.saveSettings({ cardStatements: cs });
+    }
     toast(`已匯入 ${picked.length} 筆`); closeModal(); render();
   };
 }
 
-async function readGmail() {
+async function readGmail(reset) {
+  const ready = G.connect().catch(e => e); // 一按就先要 Google 授權，手機才不會擋視窗
   try {
-    toast('連結 Gmail 中…');
-    const items = await G.fetchCardTransactions(40, msg => toast(msg));
-    if (!items.length) return toast('沒有找到新的刷卡紀錄');
-    reviewImport(items, 'Gmail 刷卡紀錄');
+    if (reset) {
+      // 清掉之前從 Gmail 匯入的，全部重新抓
+      if (!confirm('要清除之前從 Gmail 匯入的信用卡資料，全部重新抓一次嗎？（你自己記的帳不會動）')) return;
+      const prev = db.all('transactions').filter(t => t.source === 'Gmail');
+      for (const t of prev) await db.remove('transactions', t.id);
+      await db.saveSettings({ cardStatements: {} });
+      toast(`已清除 ${prev.length} 筆，重新抓取中…`);
+    } else toast('連結 Gmail 中…');
+    const auth = await ready; if (auth instanceof Error) throw auth;
+    const r = await G.fetchCardTransactions(reset ? 90 : 40, msg => toast(msg));
+    if (!r.items.length && !r.bills.length) return toast('沒有找到新的刷卡紀錄');
+    reviewImport(r.items, 'Gmail 刷卡紀錄', r);
   } catch (e) { toast(e.message); }
 }
 
@@ -413,6 +436,7 @@ document.addEventListener('click', async e => {
     else editRecord('transactions', null, { ...p.txs[0], _i: 0 });
   }
   else if (d.act === 'gmail') readGmail();
+  else if (d.act === 'gmail-reset') readGmail(true);
   else if (d.act === 'logout') db.logout();
   else if (d.act === 'login') db.login().catch(err => toast('登入失敗：' + err.message));
   else if (d.act?.startsWith('save-')) saveSettingsForm(d.act);

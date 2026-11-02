@@ -86,9 +86,12 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
     const list = await gget(`messages?maxResults=60&q=${encodeURIComponent(q)}`);
     for (const { id } of list.messages || []) if (!done.has(id)) jobs.push({ bank, id });
   }
-  if (!jobs.length) return [];
+  if (!jobs.length) return { items: [], bills: [], replaceIds: [] };
   let finished = 0;
   onProgress(`找到 ${jobs.length} 封銀行信，整理中…`);
+  // 帳單密碼：身分證字號第一碼大寫、小寫都試
+  const pwVariants = bank => { const p = pw[bank] || pw.all || ''; return [p, p.charAt(0).toUpperCase() + p.slice(1), p.charAt(0).toLowerCase() + p.slice(1), p.toUpperCase()].filter(Boolean); };
+  const bills = [];
   const results = await pool(jobs, 4, async ({ bank, id }) => {
     try {
       const msg = await gget(`messages/${id}?format=full`);
@@ -99,16 +102,45 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
         const att = parts.pdfs[0];
         const data = att.body.attachmentId ? (await gget(`messages/${id}/attachments/${att.body.attachmentId}`)).data : att.body.data;
         const buf = Uint8Array.from(b64(data), c => c.charCodeAt(0)).buffer;
-        try { text = await pdfToText(buf, [pw[bank], pw.all]); task = 'statement'; }
+        try { text = await pdfToText(buf, pwVariants(bank)); task = 'statement'; }
         catch (e) { return [{ error: `${bank}帳單（${subject}）：${e.message}`, externalId: id }]; }
       } else if (/帳單/.test(subject)) task = 'statement';
-      const found = await askClaude(task, `卡別：${bank}\n${text.slice(0, 55000)}`);
-      return found.map((it, i) => ({
-        type: it.kind === 'income' ? 'income' : 'expense', amount: it.amount, date: it.date, time: it.time,
-        category: it.category, account: bank, note: it.merchant || it.title, source: 'Gmail', externalId: `${id}#${task}#${i}`, kindOfMail: task,
-      }));
+      // 帳單另外要一筆「本期應繳總額」，卡費就照帳單上的金額
+      const ask = task === 'statement'
+        ? `卡別：${bank}\n另外請在最後加一筆 kind=transfer、title=本期應繳總額、amount=本期應繳總金額（無需繳款填 0）、date=繳款截止日（YYYY-MM-DD）。\n帳單主旨：${subject}\n${text.slice(0, 55000)}`
+        : `卡別：${bank}\n${text.slice(0, 55000)}`;
+      const found = await askClaude(task, ask);
+      const out = [];
+      found.forEach((it, i) => {
+        if (it.kind === 'transfer') { bills.push({ bank, amount: it.amount, dueDate: it.date, subject, msgId: id }); return; }
+        out.push({
+          type: it.kind === 'income' ? 'income' : 'expense', amount: it.amount, date: it.date, time: it.time,
+          category: it.category, account: bank, note: it.merchant || it.title, source: 'Gmail', externalId: `${id}#${task}#${i}`, kindOfMail: task,
+        });
+      });
+      return out;
     } catch (e) { return [{ error: `${bank}：${e.message}`, externalId: id }]; }
     finally { onProgress(`整理中… ${++finished}／${jobs.length} 封`); }
   });
-  return results.flat().filter(x => x.error || x.amount > 0);
+  let items = results.flat().filter(x => x.error || x.amount > 0);
+
+  // 同一家銀行有帳單時，帳單期間內的刷卡通知就不另外算（避免重複），
+  // 但通知信上有店名，帳單（例如匯豐）讀不到中文店名時，用通知信的店名補上
+  const replaceIds = [];
+  for (const bank of BANKS) {
+    const st = items.filter(x => !x.error && x.account === bank && x.kindOfMail === 'statement');
+    if (!st.length) continue;
+    const dates = st.map(x => x.date).sort(), from = dates[0], to = dates[dates.length - 1];
+    const inRange = x => x.account === bank && x.date >= from && x.date <= to;
+    const notifs = [...items.filter(x => !x.error && x.kindOfMail === 'notify' && inRange(x)),
+      ...db.all('transactions').filter(t => t.source === 'Gmail' && (t.externalId || '').includes('#notify#') && inRange(t))];
+    for (const s of st) {
+      if (/[一-龥a-zA-Z]{2}/.test(s.note || '')) continue;
+      const hit = notifs.find(n => Math.abs(n.amount - s.amount) <= Math.max(3, s.amount * 0.05) && Math.abs(new Date(n.date) - new Date(s.date)) <= 4 * 864e5);
+      if (hit) { s.note = hit.note; s.category = hit.category; }
+    }
+    items = items.filter(x => !(x.kindOfMail === 'notify' && inRange(x)));
+    replaceIds.push(...db.all('transactions').filter(t => t.source === 'Gmail' && (t.externalId || '').includes('#notify#') && inRange(t)).map(t => t.id));
+  }
+  return { items, bills, replaceIds };
 }
