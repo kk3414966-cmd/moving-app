@@ -78,14 +78,46 @@ function findOpenJob(ev) {
   return cands.sort((a, b) => dist(a) - dist(b))[0];
 }
 
-// 交通類支出：當天有工作才算「公」；幫手、修車、收購等工作成本一律算「公」
+// 每個支出分類算公帳還是私帳：'公' 一律公、'私' 一律私、'day' 當天有工作才算公
 const DAY_BASED = ['加油', '停車', '過路費', '租車'];
+export const bizModeOf = c => c?.bizMode || (c?.work ? (DAY_BASED.includes(c.name) ? 'day' : '公') : '私');
 export function bizFor(tx, date) {
   if (tx.type !== 'expense') return tx.type === 'income' && tx.work ? '公' : (tx.type === 'income' ? '私' : '');
-  const c = catOf(tx.category);
-  if (!c?.work) return '私';
-  return !DAY_BASED.includes(c.name) || hasJob(date) ? '公' : '私';
+  const mode = bizModeOf(catOf(tx.category));
+  return mode === 'day' ? (hasJob(date) ? '公' : '私') : mode;
 }
+
+// 改分類的公私設定，以前記的同分類全部一起改，回傳改了幾筆
+export async function setCategoryBiz(id, mode) {
+  const c = db.get('categories', id);
+  await db.update('categories', id, { bizMode: mode, work: mode !== '私' });
+  let n = 0;
+  for (const t of db.all('transactions').filter(t => t.type === 'expense' && t.category === c.name)) {
+    const biz = bizFor(t, t.date);
+    if (t.biz !== biz) { await db.update('transactions', t.id, { biz }); n++; }
+  }
+  return n;
+}
+
+// 分類改名：以前記的也跟著改名
+export async function renameCategory(id, name) {
+  const old = db.get('categories', id).name;
+  await db.update('categories', id, { name });
+  for (const t of db.all('transactions').filter(t => t.category === old)) await db.update('transactions', t.id, { category: name });
+}
+
+// 同一家店的消費：名稱包含關鍵字的全部改成同一個分類（公私也照新分類重算）
+export const sameMerchant = (key, type = 'expense') => !key ? [] :
+  db.all('transactions').filter(t => t.type === type && (t.note || '').toLowerCase().includes(key.toLowerCase()));
+export async function recategorize(list, category) {
+  for (const t of list) await db.update('transactions', t.id, { category, biz: bizFor({ ...t, category }, t.date) });
+}
+// 記住「名稱包含 X → 分類 Y」，之後從 Gmail 抓到的自動套用
+export const merchantRules = () => db.settings().merchantRules || {};
+export const ruleFor = note => {
+  const n = (note || '').toLowerCase();
+  return Object.entries(merchantRules()).find(([k]) => n.includes(k.toLowerCase()))?.[1];
+};
 
 /** 把確認卡片上的解析結果寫入資料庫，回傳寫了哪些東西 */
 export async function saveParsed(p, source = '手動') {

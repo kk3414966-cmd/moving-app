@@ -23,20 +23,39 @@ function toast(msg) {
 }
 
 // ================= 對話框 =================
-function itemLine({ col, rec }) {
+// 右邊是我打的字，左邊是 App 記成什麼（顏色跟行事曆標籤一樣）
+const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const dayLabel = d => d === today() ? '今天' : d === ymd(new Date(Date.now() - 864e5)) ? '昨天' : `${md(d)}（${WEEK[new Date(d + 'T00:00:00').getDay()]}）`;
+
+function recCard({ col, rec }) {
+  const when = `${md(rec.date)}${rec.time ? ' ' + rec.time : ''}`;
   if (col === 'events') {
-    if (rec.type === 'job') {
-      const late = !rec.done && rec.date < today();
-      return `<div class="bubble job ${late ? 'late' : ''}" data-ev="${rec.id}">
-        <b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> ${esc(rec.title)}
-        <span class="tag ${rec.done ? 'ok' : 'warn'}">${rec.done ? '實收 ' + money(rec.amount) : late ? '未記收入' : '未完成'}</span>${rec.note ? '<small>有備註</small>' : ''}</div>`;
-    }
-    return `<div class="bubble event" data-ev="${rec.id}"><b>${md(rec.date)}${rec.time ? ' ' + rec.time : ''}</b> ${esc(rec.title)}${rec.note ? '<small>有備註</small>' : ''}</div>`;
+    const color = L.labelOf(L.eventLabel(rec)).color, late = rec.type === 'job' && !rec.done && rec.date < today();
+    const tag = rec.type === 'job' ? `<span class="tag ${rec.done ? 'ok' : 'warn'}">${rec.done ? '已完成' : late ? '未記收入' : '待完成'}</span>` : '';
+    return `<div class="rec ${late ? 'late' : ''}" data-ev="${rec.id}" style="--c:${color}">
+      <span class="ico">${rec.type === 'job' ? '🚚' : '📅'}</span>
+      <div class="rec-main"><b>${esc(evTitle(rec))}</b><small>${rec.type === 'job' ? '工作' : '行程'}・${when}${rec.note ? '・有備註' : ''}</small></div>${tag}</div>`;
   }
-  const sign = rec.type === 'income' ? '+' : rec.type === 'expense' ? '-' : '⇄';
-  return `<div class="bubble tx ${rec.type}" data-edit="transactions:${rec.id}">
-    <span class="amt">${sign}${money(rec.amount)}</span> ${esc(rec.category)}｜${esc(rec.type === 'transfer' ? '繳' + rec.to : rec.account)}${rec.biz === '公' ? '｜公' : ''}
-    <small>${md(rec.date)} ${esc(rec.time)} ${esc(rec.note)}</small></div>`;
+  const color = L.labelOf(L.txLabelId(rec)).color, sign = rec.type === 'income' ? '+' : rec.type === 'expense' ? '−' : '⇄';
+  const acc = rec.type === 'transfer' ? '繳' + rec.to : rec.account || '現金';
+  return `<div class="rec" data-edit="transactions:${rec.id}" style="--c:${color}">
+    <span class="ico">${rec.type === 'income' ? '💰' : rec.type === 'transfer' ? '💳' : '🧾'}</span>
+    <div class="rec-main"><b>${esc(rec.category)}${rec.note && rec.note !== rec.category ? `<em>${esc(rec.note)}</em>` : ''}</b>
+      <small>${esc(acc)}・${rec.biz === '公' ? '公帳' : '私帳'}・${when}</small></div>
+    <span class="rec-amt ${rec.type}">${sign}${money(rec.amount).replace('-', '')}</span></div>`;
+}
+
+function chatPanel() {
+  const s = L.monthStats(today().slice(0, 7)), bills = L.cardBills(today().slice(0, 7)), evs = L.eventsOn(today());
+  return `<aside class="side">
+    <div class="side-card"><h4>今天 ${md(today())}（${WEEK[new Date().getDay()]}）</h4>
+      ${evs.map(e => `<div class="side-ev" data-ev="${e.id}" style="--c:${L.labelOf(L.eventLabel(e)).color}"><span>${e.time || '全天'}</span>${esc(evTitle(e))}</div>`).join('') || '<p class="muted">今天沒有行程</p>'}</div>
+    <div class="side-card" data-go="stats"><h4>這個月</h4>
+      <div class="kv"><span>工作收入</span><b class="g">${money(s.workIncome)}</b></div>
+      <div class="kv"><span>工作淨利</span><b>${money(s.workNet)}</b></div>
+      <div class="kv"><span>個人花費</span><b class="r">${money(s.personal)}</b></div>
+      <div class="kv"><span>本月卡費</span><b>${money(bills.total)}</b></div></div>
+  </aside>`;
 }
 
 function chatView() {
@@ -44,11 +63,27 @@ function chatView() {
   const unpaid = BANKS.filter(b => bills.bills[b] > 0 && bills.paidBy[b] < bills.bills[b]);
   const open = L.monthStats(ym).openJobs.length + L.monthStats(ymAdd(ym, -1)).openJobs.length;
   const banners = [];
-  if (d <= 10 && unpaid.length) banners.push(`<div class="banner" data-go="stats">本月要繳卡費 ${money(bills.total)}（${unpaid.map(b => `${b} ${money(bills.bills[b])}`).join('、')}）</div>`);
-  if (open) banners.push(`<div class="banner warn" data-go="cal">有 ${open} 筆過去的工作還沒記收入</div>`);
-  return `${banners.join('')}
-  <div id="log">${L.recent().map(itemLine).join('') || '<p class="empty">打一行字按 Enter 就記好了，例如：<br><code>-120晚餐</code>　<code>1105 11:00 03.西屯太平0.0 王小明 賴</code></p>'}</div>
-  ${state.busy ? `<div class="muted center">${esc(state.busy)}</div>` : ''}`;
+  if (d <= 10 && unpaid.length) banners.push(`<div class="banner" data-go="stats">💳 本月要繳卡費 ${money(bills.total)}（${unpaid.map(b => `${b} ${money(bills.bills[b])}`).join('、')}）</div>`);
+  if (open) banners.push(`<div class="banner warn" data-go="cal">⚠ 有 ${open} 筆過去的工作還沒記收入</div>`);
+  // 同一句話記出來的幾筆放在一起
+  const groups = [];
+  for (const it of L.recent(60)) {
+    const g = groups[groups.length - 1], key = `${it.rec.raw || it.rec.id}|${(it.rec.createdAt || '').slice(0, 16)}`;
+    if (g && g.key === key) g.items.push(it); else groups.push({ key, raw: it.rec.raw, at: it.rec.createdAt, items: [it] });
+  }
+  let lastDay = '';
+  const log = groups.map(g => {
+    const day = g.at ? ymd(new Date(g.at)) : '';
+    const sep = day && day !== lastDay ? `<div class="day-sep"><span>${dayLabel(day)}</span></div>` : '';
+    lastDay = day || lastDay;
+    return `${sep}${g.raw ? `<div class="msg me"><div class="say">${esc(g.raw)}</div><time>${hhmm(g.at)}</time></div>` : ''}
+      <div class="msg bot">${g.items.map(recCard).join('')}</div>`;
+  }).join('');
+  const examples = ['-120晚餐', '+500 回收紙箱', '1105 14:00 03.西屯太平0.3 王小明 賴', '老婆上課 1109、10、11'];
+  return `<div class="chat-wrap"><div class="chat">${banners.join('')}
+    <div id="log">${log || `<div class="welcome"><div class="w-ico">💬</div><h3>打一句話就記好了</h3><p class="muted">支出、收入、工作、行程都打在下面，按 Enter 存檔。點一點試試看：</p>
+      <div class="ex">${examples.map(x => `<button data-prefill="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`}</div>
+    ${state.busy ? `<div class="msg bot"><div class="typing">${esc(state.busy)}</div></div>` : ''}</div>${chatPanel()}</div>`;
 }
 
 // 按 Enter 直接存檔，存完馬上出現在行事曆；要改就點那一筆
@@ -79,7 +114,16 @@ function bars(data, fmt = money) {
     <i style="height:${Math.round(Math.abs(d.v) / max * 100)}%" class="${d.v < 0 ? 'neg' : ''}"></i><span class="l">${esc(d.l)}</span></div>`).join('')}</div>`;
 }
 const PALETTE = ['#2f7de1', '#f08c2e', '#2bb673', '#9b59b6', '#e74c3c', '#16a5a5', '#d4a017', '#7f8c8d', '#c2185b', '#5d6d7e'];
-function donut(obj) {
+// 滑鼠移上去（手機點一下）跳出細項：哪一天、買了什麼、多少；點細項可以改分類
+const byDate = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
+function tip(list) {
+  const rows = list.slice().sort(byDate).map(t => `<div class="tip-row" data-edit="transactions:${t.id}">
+    <span class="d">${md(t.date)}</span><span class="w">${esc(txTitle(t))}<small>${esc(t.category)}｜${esc(t.account || '現金')}</small></span>
+    <b class="${t.type === 'income' ? 'g' : 'r'}">${money(t.amount)}</b></div>`).join('');
+  return `<div class="tip">${rows ? `<div class="tip-h">${list.length} 筆・點一筆可以修改</div>${rows}` : '<p class="muted">沒有明細</p>'}</div>`;
+}
+
+function donut(obj, lists = {}) {
   const entries = Object.entries(obj).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   const total = entries.reduce((s, [, v]) => s + v, 0);
   if (!total) return '<p class="muted">這個月沒有資料</p>';
@@ -91,7 +135,7 @@ function donut(obj) {
     return `<path d="M${p(a0)} A40 40 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${p(a1)}" fill="none" stroke="${PALETTE[i % 10]}" stroke-width="18"/>`;
   }).join('');
   return `<div class="donut"><svg viewBox="0 0 100 100">${arcs}<text x="50" y="54" text-anchor="middle">${money(total)}</text></svg>
-    <ul>${entries.map(([k, v], i) => `<li><i style="background:${PALETTE[i % 10]}"></i>${esc(k)}<b>${money(v)}</b><small>${Math.round(v / total * 100)}%</small></li>`).join('')}</ul></div>`;
+    <ul>${entries.map(([k, v], i) => `<li class="${lists[k] ? 'has-tip' : ''}"><i style="background:${PALETTE[i % 10]}"></i>${esc(k)}<b>${money(v)}</b><small>${Math.round(v / total * 100)}%</small>${lists[k] ? tip(lists[k]) : ''}</li>`).join('')}</ul></div>`;
 }
 
 // 統計分三頁：工作／個人／卡費；每一筆都能點回行事曆那一天
@@ -113,9 +157,14 @@ function statsView() {
     <div class="stab">${[['work', '工作'], ['personal', '個人'], ['card', '卡費']].map(([k, t]) => `<button data-stab="${k}" class="${tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
 
   if (tab === 'work') {
-    const by = s.workCostBy, helper = by['幫手'] || 0;
-    const car = ['加油', '停車', '過路費', '租車', '車輛保養'].reduce((a, k) => a + (by[k] || 0), 0);
-    const other = s.workCost - helper - car;
+    const CAR = ['加油', '停車', '過路費', '租車', '車輛保養'];
+    const wInc = txs.filter(t => t.biz === '公' && t.type === 'income'), wExp = txs.filter(t => t.biz === '公' && t.type === 'expense');
+    const lHelper = wExp.filter(t => t.category === '幫手'), lCar = wExp.filter(t => CAR.includes(t.category));
+    const lOther = wExp.filter(t => t.category !== '幫手' && !CAR.includes(t.category));
+    const tot = l => l.reduce((a, t) => a + +t.amount, 0);
+    const helper = tot(lHelper), car = tot(lCar), other = tot(lOther);
+    const otherNames = [...new Set(lOther.map(t => t.category))].slice(0, 4).join('、') || '介紹費、收購、包材…';
+    const frow = (label, v, list, cls) => `<tr class="has-tip"><td>${label}<span class="hint">ⓘ</span>${tip(list)}</td><td class="${cls}">${money(v)}</td></tr>`;
     // 每天：收入、成本、淨賺
     const days = {};
     for (const t of txs.filter(t => t.biz === '公')) {
@@ -126,12 +175,13 @@ function statsView() {
     return `${head}
     <section><h3>淨利</h3>
       <table class="formula">
-        <tr><td>工作收入</td><td class="g">${money(s.workIncome)}</td></tr>
-        <tr><td>－ 幫手</td><td class="r">${money(helper)}</td></tr>
-        <tr><td>－ 車子（油錢、停車、過路費、修車）</td><td class="r">${money(car)}</td></tr>
-        <tr><td>－ 其他成本（介紹費、收購、包材…）</td><td class="r">${money(other)}</td></tr>
+        ${frow('工作收入', s.workIncome, wInc, 'g')}
+        ${frow('－ 幫手', helper, lHelper, 'r')}
+        ${frow('－ 車子（油錢、停車、過路費、修車）', car, lCar, 'r')}
+        ${frow(`－ 其他成本（${esc(otherNames)}）`, other, lOther, 'r')}
         <tr class="total"><td>＝ 淨利（真正賺到的）</td><td>${money(s.workNet)}</td></tr>
       </table>
+      <p class="muted">滑鼠移到每一行上（手機點一下）可以看細項。</p>
       <p class="muted">工作 ${s.jobs} 件（完成 ${s.jobsDone}）｜3.5 噸 ${s.truck['3.5']} 次、2.7 噸 ${s.truck['2.7']} 次</p>
     </section>
     <section><h3>每天明細 <small class="muted">點一下看那天的行事曆</small></h3>
@@ -146,8 +196,10 @@ function statsView() {
   }
 
   if (tab === 'personal') {
-    const pers = txs.filter(t => t.biz !== '公');
+    const pers = txs.filter(t => t.biz !== '公'), persExp = pers.filter(t => t.type === 'expense');
     const otherIncome = pers.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0);
+    const group = (list, key) => list.reduce((m, t) => ((m[key(t)] ||= []).push(t), m), {});
+    const byCat = group(persExp, t => t.category), byAcc = group(txs.filter(t => t.type === 'expense'), t => t.account || '現金');
     const left = s.workNet + otherIncome - s.personal;
     return `${head}
     <section><h3>這個月剩多少</h3>
@@ -157,8 +209,8 @@ function statsView() {
         <tr><td>－ 個人花費</td><td class="r">${money(s.personal)}</td></tr>
         <tr class="total"><td>＝ 這個月存下來</td><td>${money(left)}</td></tr>
       </table></section>
-    <section><h3>個人花費</h3>${donut(s.personalBy)}
-      <h4>付款方式</h4><table>${['現金', ...BANKS].map(a => `<tr><td>${a}</td><td>${money(s.byAccount[a] || 0)}</td></tr>`).join('')}</table></section>
+    <section><h3>個人花費 <small class="muted">滑鼠移上去（手機點一下）看細項</small></h3>${donut(s.personalBy, byCat)}
+      <h4>付款方式</h4><table>${['現金', ...BANKS].map(a => `<tr class="has-tip"><td>${a}<span class="hint">ⓘ</span>${tip(byAcc[a] || [])}</td><td>${money(s.byAccount[a] || 0)}</td></tr>`).join('')}</table></section>
     <section><h3>明細 <small class="muted">點一下看那天的行事曆</small></h3><table>${detailRows(pers)}</table></section>
     <section><h4>近 6 個月個人花費</h4>${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.personal })))}</section>`;
   }
@@ -175,7 +227,12 @@ function statsView() {
 }
 
 // ================= 修改視窗 =================
-function openModal(html) { $('#modal-body').innerHTML = html; $('#modal').classList.add('open'); }
+function openModal(html) {
+  const b = $('#modal-body'); b.onclick = b.onkeydown = b.onchange = null;
+  b.innerHTML = html; $('#modal').classList.add('open');
+}
+// 視窗最上面一條：標題＋右上角關閉，捲到哪裡都按得到
+const modalHead = (title, back) => `<div class="modal-head">${back ? '<button class="icon-btn" data-back aria-label="回設定">‹</button>' : ''}<h3>${esc(title)}</h3><button class="icon-btn x" data-close aria-label="關閉">✕</button></div>`;
 function closeModal() { $('#modal').classList.remove('open'); $('#modal-body').innerHTML = ''; }
 
 function editRecord(col, id, draft) {
@@ -197,7 +254,11 @@ function editRecord(col, id, draft) {
   else body = `
     <label>收支<select name="type">${[['expense', '支出'], ['income', '收入'], ['transfer', '繳卡費（轉帳）']].map(([v, t]) => `<option value="${v}" ${r.type === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     ${f('金額', 'amount', r.amount, 'number')}${f('日期', 'date', r.date, 'date')}${f('時間', 'time', r.time, 'time')}
-    <label>分類<select name="category">${opt(cats.map(c => c.name).concat(['繳卡費']), r.category)}</select></label>
+    <label>分類<select name="category">${opt(cats.map(c => c.name).concat(['繳卡費']), r.category)}<option value="__new">＋ 新增分類…</option></select></label>
+    <div class="add-row hide" id="newcat"><input id="newcat-name" placeholder="新分類的名稱，例如：淘寶"><button type="button" class="primary" id="newcat-ok">加入</button></div>
+    ${draft ? '' : `<div class="sync hide" id="sync">
+      <label class="check"><input type="checkbox" name="syncAll" checked> 名稱有「<input name="syncKey" class="inline" value="${esc((r.note || '').split(/[\s*]/)[0])}">」的消費全部一起改（<b id="sync-n">0</b> 筆）</label>
+      <label class="check"><input type="checkbox" name="syncRule" checked> 以後抓到這種消費，自動用這個分類</label></div>`}
     <label>帳戶${r.type === 'transfer' ? '（繳哪張卡）' : ''}<select name="${r.type === 'transfer' ? 'to' : 'account'}">${opt(accs, r.type === 'transfer' ? r.to : r.account)}</select></label>
     <label>公／私<select name="biz">${opt(['公', '私'], r.biz)}</select></label>${f('備註', 'note', r.note)}`;
   openModal(`<h3>${draft ? '修改後再確認' : '修改'}</h3><form id="edit-form">${body}
@@ -205,9 +266,43 @@ function editRecord(col, id, draft) {
   const form = $('#edit-form');
   const toggle = () => form.querySelector('.jobonly')?.classList.toggle('hide', form.type.value !== 'job');
   toggle(); form.type.addEventListener('change', toggle);
+  // 改分類：可以新增分類，也可以把同一家店的消費全部一起改
+  const sync = form.querySelector('#sync');
+  const others = () => L.sameMerchant(form.syncKey.value.trim(), form.type.value).filter(t => t.id !== id);
+  const showSync = () => {
+    if (!sync) return;
+    sync.classList.toggle('hide', form.category.value === r.category);
+    $('#sync-n').textContent = others().length;
+  };
+  if (col === 'transactions') {
+    const nc = form.querySelector('#newcat'), ncName = form.querySelector('#newcat-name');
+    let lastCat = form.category.value;
+    form.category.addEventListener('change', () => {
+      if (form.category.value === '__new') { nc.classList.remove('hide'); ncName.focus(); form.category.value = lastCat; return; }
+      lastCat = form.category.value; showSync();
+    });
+    const addNew = async () => {
+      const name = ncName.value.trim();
+      if (!name) return toast('先打分類名稱');
+      if (!L.catOf(name)) await db.add('categories', { name, kind: form.type.value === 'income' ? 'income' : 'expense', work: false, bizMode: '私', keywords: [], order: L.categories().length });
+      if (![...form.category.options].some(o => o.value === name)) form.category.insertAdjacentHTML('afterbegin', `<option>${esc(name)}</option>`);
+      form.category.value = lastCat = name; nc.classList.add('hide'); ncName.value = ''; showSync();
+    };
+    form.querySelector('#newcat-ok').onclick = addNew;
+    ncName.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addNew(); } });
+    form.syncKey?.addEventListener('input', showSync);
+  }
   form.onsubmit = async e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form));
+    const { syncAll, syncKey, syncRule } = data; delete data.syncAll; delete data.syncKey; delete data.syncRule;
+    let msg = '已儲存';
+    if (col === 'transactions' && !draft && data.category !== r.category) {
+      if (data.biz === r.biz) data.biz = L.bizFor({ ...r, ...data }, data.date); // 公私照新分類重算
+      const key = (syncKey || '').trim();
+      if (syncAll && key) { const list = others(); await L.recategorize(list, data.category); msg = `已把 ${list.length + 1} 筆一起改成「${data.category}」`; }
+      if (syncRule && key) await db.saveSettings({ merchantRules: { ...L.merchantRules(), [key]: data.category } });
+    }
     if (col === 'events') { data.done = !!form.done?.checked; data.amount = +data.amount || 0; Object.assign(data, data.type === 'job' ? L.codeInfo(data.codeRaw) : {}); data.route = (data.from || '') + (data.to && data.to !== data.from ? data.to : ''); }
     else { data.amount = +data.amount || 0; if (data.type === 'transfer') { data.from = '銀行戶頭'; data.category = '繳卡費'; } }
     if (draft) {
@@ -221,7 +316,7 @@ function editRecord(col, id, draft) {
         if (tx) await db.update('transactions', tx.id, { amount: data.amount, date: data.date });
         else if (data.amount) await db.add('transactions', { type: 'income', amount: data.amount, category: '搬家', work: true, biz: '公', account: '現金', date: data.date, time: data.time, note: data.title, eventId: id, source: '手動' });
       }
-      toast('已儲存');
+      toast(msg);
     }
     closeModal(); render();
   };
@@ -238,7 +333,7 @@ function settingsView() {
   const st = db.settings(), code = L.codes();
   const accs = db.all('accounts'), cats = L.categories(), scs = db.all('shortcuts').sort((a, b) => a.order - b.order);
   const year = today().slice(0, 4), ym = today().slice(0, 7);
-  openModal(`<h3>設定</h3>
+  openModal(`${modalHead('設定')}
   <section><h4>帳號</h4>
     <p>${db.getMode() === 'local' ? '目前是<b>本機試用模式</b>：資料只存在這支手機的瀏覽器。照「設定教學」連上 Firebase 後就能雲端同步。' : `已登入：${esc(db.userName())}`}</p>
     ${db.getMode() === 'cloud' ? '<button data-act="logout">登出</button>' : ''}
@@ -261,9 +356,8 @@ function settingsView() {
   </section>
   <section><h4>行事曆標籤</h4><p class="muted">改標籤名稱、顏色，以及對話框輸入時工作／記帳／記事自動用哪個標籤。</p>
     <button class="primary" data-c-labels>編輯標籤</button></section>
-  <section><h4>分類與關鍵字</h4><p class="muted">一行一個：名稱｜收入或支出｜公或私｜關鍵字,關鍵字</p>
-    <textarea id="cat-text" rows="10">${esc(cats.map(c => `${c.name}｜${c.kind === 'income' ? '收入' : '支出'}｜${c.work ? '公' : '私'}｜${(c.keywords || []).join(',')}`).join('\n'))}</textarea>
-    <button data-act="save-cat">儲存</button></section>
+  <section><h4>分類與關鍵字</h4><p class="muted">設定每個分類算公帳還是私帳（一鍵把以前的全部改過來），以及打字時用哪些字自動分類。目前 ${cats.length} 個分類。</p>
+    <button class="primary" data-act="cat-editor">編輯分類</button></section>
   <section><h4>代號對照表</h4><p class="muted">一行一個：數字=意思（0 固定代表 3.5 噸車）</p>
     <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
   <div class="row"><button data-close>關閉</button></div>`);
@@ -281,10 +375,6 @@ async function saveSettingsForm(act) {
   } else if (act === 'save-sc') {
     for (const s of db.all('shortcuts')) await db.remove('shortcuts', s.id);
     await db.addMany('shortcuts', $('#sc-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([label, input], i) => ({ label: label.trim(), input: input.trim(), order: i })));
-  } else if (act === 'save-cat') {
-    const lines = $('#cat-text').value.split('\n').map(l => l.split('｜')).filter(x => x[0]?.trim());
-    for (const c of db.all('categories')) await db.remove('categories', c.id);
-    await db.addMany('categories', lines.map(([name, kind, biz, kw], i) => ({ name: name.trim(), kind: (kind || '').includes('收') ? 'income' : 'expense', work: (biz || '').includes('公'), keywords: (kw || '').split(/[,，]/).map(s => s.trim()).filter(Boolean), order: i })));
   } else if (act === 'save-code') {
     const codes = Object.fromEntries($('#code-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([k, v]) => [k.trim(), v.trim()]));
     await db.saveSettings({ codes: Object.keys(codes).length ? codes : DEFAULT_CODES });
@@ -292,11 +382,104 @@ async function saveSettingsForm(act) {
   toast('已儲存');
 }
 
+// ================= 分類設定 =================
+// 一張卡片一個分類：名稱、公帳／私帳、關鍵字（點 ✕ 刪、打字按 Enter 加）
+const BIZ_MODES = [['公', '公帳'], ['day', '有工作那天算公'], ['私', '私帳']];
+let delArm = ''; // 按了垃圾桶、等確認的那個分類
+async function addCategory(kind) {
+  const i = document.querySelector(`[data-cat-new="${kind}"]`), name = (i?.value || '').trim();
+  if (!name) { toast('先打分類名稱'); i?.focus(); return false; }
+  if (L.catOf(name)) { toast('已經有這個分類'); return false; }
+  await db.add('categories', { name, kind, work: false, bizMode: '私', keywords: [], order: L.categories().length });
+  toast(`已新增「${name}」`); return true;
+}
+function openCategoryEditor() {
+  const keep = $('#modal-body').scrollTop, open = $('#modal').classList.contains('open') && $('.cat-ed');
+  const cats = L.categories();
+  const card = c => {
+    const mode = c.kind === 'income' ? (c.work ? '公' : '私') : L.bizModeOf(c);
+    const modes = c.kind === 'income' ? [['公', '工作收入'], ['私', '個人收入']] : BIZ_MODES;
+    return `<div class="cat">
+      <div class="cat-top"><input class="cat-name" data-cat-name="${c.id}" value="${esc(c.name)}">
+        ${delArm === c.id ? `<button class="danger sm" data-cat-del="${c.id}">確定刪除</button><button class="sm" data-cat-keep>不要</button>`
+          : `<button class="icon-btn" data-cat-arm="${c.id}" title="刪除分類">🗑</button>`}</div>
+      ${delArm === c.id ? `<p class="warn sm-note">${(n => n ? `以前的 ${n} 筆會改到「${c.kind === 'income' ? '其他收入' : '其他支出'}」` : '這個分類沒有記過帳')(db.all('transactions').filter(t => t.category === c.name).length)}</p>` : ''}
+      <div class="seg3">${modes.map(([m, t]) => `<button data-cat-biz="${c.id}|${m}" class="${mode === m ? 'on m-' + m : ''}">${t}</button>`).join('')}</div>
+      <div class="kws">${(c.keywords || []).map((k, i) => `<span class="kw">${esc(k)}<button data-kw-del="${c.id}|${i}">✕</button></span>`).join('')}
+        <input class="kw-add" data-kw-add="${c.id}" placeholder="＋ 加關鍵字，按 Enter"></div></div>`;
+  };
+  const group = (title, list, kind) => `<h4>${title}</h4><div class="cat-list">${list.map(card).join('')}</div>
+    <div class="add-row"><input data-cat-new="${kind}" placeholder="新${kind === 'income' ? '收入' : '支出'}分類的名稱，例如：淘寶">
+      <button class="primary" data-cat-add="${kind}">＋ 新增</button></div>`;
+  const rules = Object.entries(L.merchantRules());
+  openModal(`${modalHead('分類與關鍵字', true)}<div class="cat-ed">
+    <div class="howto"><b>怎麼用？</b>
+      <p>① 按「公帳／私帳」：這個分類以前記的帳會<b>全部一起改</b>，不用一筆一筆改。「有工作那天算公」＝那天有搬家才算公帳。</p>
+      <p>② 關鍵字：打字記帳時內容有這個字，就自動歸到這個分類。例：「中油」→ 加油。</p></div>
+    ${group('支出', cats.filter(c => c.kind !== 'income'), 'expense')}
+    ${group('收入', cats.filter(c => c.kind === 'income'), 'income')}
+    ${rules.length ? `<h4>信用卡消費自動分類</h4><p class="muted">在明細改分類時勾「以後自動用這個分類」就會出現在這裡。</p>
+      <div class="kws">${rules.map(([k, v]) => `<span class="kw">${esc(k)} → ${esc(v)}<button data-rule-del="${esc(k)}">✕</button></span>`).join('')}</div>` : ''}
+  </div>`);
+  if (open) $('#modal-body').scrollTop = keep;
+  const body = $('#modal-body');
+  body.onclick = async e => {
+    const b = e.target.closest('[data-cat-biz],[data-cat-del],[data-cat-arm],[data-cat-keep],[data-kw-del],[data-cat-add],[data-rule-del],[data-back]');
+    if (!b) return;
+    const d = b.dataset;
+    if (d.back !== undefined) { delArm = ''; return settingsView(); }
+    if (d.catArm) delArm = d.catArm;
+    else if (d.catKeep !== undefined) delArm = '';
+    else if (d.catBiz) {
+      const [id, mode] = d.catBiz.split('|'), c = db.get('categories', id);
+      if (c.kind === 'income') await db.update('categories', id, { work: mode === '公' });
+      else { const n = await L.setCategoryBiz(id, mode); toast(`「${c.name}」改成${BIZ_MODES.find(x => x[0] === mode)[1]}，以前的 ${n} 筆一起改好了`); }
+    } else if (d.kwDel) {
+      const [id, i] = d.kwDel.split('|'), c = db.get('categories', id);
+      await db.update('categories', id, { keywords: c.keywords.filter((_, k) => k !== +i) });
+    } else if (d.catAdd) {
+      if (!await addCategory(d.catAdd)) return;
+    } else if (d.catDel) {
+      const c = db.get('categories', d.catDel), fallback = c.kind === 'income' ? '其他收入' : '其他支出';
+      delArm = '';
+      if (c.name === fallback) toast(`「${fallback}」不能刪`);
+      else {
+        await L.recategorize(db.all('transactions').filter(t => t.category === c.name), fallback);
+        await db.remove('categories', c.id); toast(`已刪除「${c.name}」`);
+      }
+    } else if (d.ruleDel) {
+      const r = { ...L.merchantRules() }; delete r[d.ruleDel]; await db.saveSettings({ merchantRules: r });
+    }
+    openCategoryEditor();
+  };
+  body.onkeydown = async e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const n = e.target.closest('[data-cat-new]');
+    if (n) { e.preventDefault(); if (await addCategory(n.dataset.catNew)) openCategoryEditor(); return; }
+    const i = e.target.closest('[data-kw-add]');
+    if (!i) return;
+    e.preventDefault();
+    const kw = i.value.trim(), c = db.get('categories', i.dataset.kwAdd);
+    if (kw && !(c.keywords || []).includes(kw)) await db.update('categories', c.id, { keywords: [...(c.keywords || []), kw] });
+    openCategoryEditor();
+    document.querySelector(`[data-kw-add="${c.id}"]`)?.focus();
+  };
+  body.onchange = async e => {
+    const i = e.target.closest('[data-cat-name]');
+    if (!i) return;
+    const name = i.value.trim(), c = db.get('categories', i.dataset.catName);
+    if (!name || name === c.name) { i.value = c.name; return; }
+    if (L.catOf(name)) { toast('已經有這個分類'); i.value = c.name; return; }
+    await L.renameCategory(c.id, name); toast('已改名，以前的帳也一起改了');
+  };
+}
+
 // 匯入確認清單（Gmail／帳單檔）
 function reviewImport(items, title, extra = {}) {
   const { bills = [], replaceIds = [] } = extra, skip = new Set(replaceIds);
   const errors = items.filter(x => x.error), list = items.filter(x => !x.error);
-  list.forEach(x => { x.dup = L.findDuplicate(x, skip); x.biz = x.biz || '私'; });
+  // 套用「名稱有 X → 分類 Y」的規則，公私照分類的設定
+  list.forEach(x => { x.dup = L.findDuplicate(x, skip); x.category = L.ruleFor(x.note) || x.category; x.biz = x.biz || L.bizFor(x, x.date) || '私'; });
   const cats = L.categories().map(c => c.name);
   openModal(`<h3>${esc(title)}</h3>
     ${errors.map(e => `<p class="warn">${esc(e.error)}</p>`).join('')}
@@ -412,6 +595,13 @@ function render() {
 }
 
 document.addEventListener('click', async e => {
+  // 手機沒有滑鼠：點一下打開細項，再點一下收起來
+  const ht = e.target.closest('.has-tip');
+  if (ht && !e.target.closest('.tip')) {
+    document.querySelectorAll('.has-tip.open').forEach(x => x !== ht && x.classList.remove('open'));
+    ht.classList.toggle('open'); return;
+  }
+  if (!ht) document.querySelectorAll('.has-tip.open').forEach(x => x.classList.remove('open'));
   const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-stats],[data-stab],[data-scat],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-day],#gear');
   if (!t) return;
   const d = t.dataset;
@@ -437,6 +627,7 @@ document.addEventListener('click', async e => {
   }
   else if (d.act === 'gmail') readGmail();
   else if (d.act === 'gmail-reset') readGmail(true);
+  else if (d.act === 'cat-editor') openCategoryEditor();
   else if (d.act === 'logout') db.logout();
   else if (d.act === 'login') db.login().catch(err => toast('登入失敗：' + err.message));
   else if (d.act?.startsWith('save-')) saveSettingsForm(d.act);
