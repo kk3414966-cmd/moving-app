@@ -9,7 +9,7 @@ const { evTitle, txLabel } = CAL;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = n => '$' + Math.round(+n || 0).toLocaleString('zh-TW');
+const money = n => (+n < 0 ? '-$' : '$') + Math.abs(Math.round(+n || 0)).toLocaleString('zh-TW');
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 const today = () => ymd(new Date());
 const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
@@ -94,39 +94,80 @@ function donut(obj) {
     <ul>${entries.map(([k, v], i) => `<li><i style="background:${PALETTE[i % 10]}"></i>${esc(k)}<b>${money(v)}</b><small>${Math.round(v / total * 100)}%</small></li>`).join('')}</ul></div>`;
 }
 
+// 統計分三頁：工作／個人／卡費；每一筆都能點回行事曆那一天
+function txTitle(t) {
+  const ev = t.eventId && db.get('events', t.eventId);
+  return ev ? evTitle(ev) : (t.note || t.category);
+}
+function detailRows(list) {
+  return list.sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))).map(t => `<tr data-day="${t.date}" class="link-row">
+    <td>${md(t.date)}<small>（${WEEK[new Date(t.date + 'T00:00:00').getDay()]}）</small></td><td class="ttl">${esc(txTitle(t))}<small>${esc(t.category)}</small></td>
+    <td class="${t.type === 'income' ? 'g' : 'r'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</td></tr>`).join('');
+}
+
 function statsView() {
-  const ym = state.statsYm, s = L.monthStats(ym), code = L.codes(), bills = L.cardBills(ym);
+  const ym = state.statsYm, s = L.monthStats(ym), code = L.codes(), bills = L.cardBills(ym), tab = state.statsTab || 'work';
   const trend = [-5, -4, -3, -2, -1, 0].map(n => { const m = ymAdd(ym, n); return { m, s: L.monthStats(m) }; });
-  const svc = Object.entries(s.service).sort((a, b) => b[1].count - a[1].count);
-  return `<div class="month-nav"><button data-stats="-1">‹</button><h2>${ym.replace('-', ' 年 ')} 月</h2><button data-stats="1">›</button></div>
-  <section><h3>工作</h3>
-    <div class="cards three"><div class="card"><small>工作收入</small><b class="g">${money(s.workIncome)}</b></div>
-      <div class="card"><small>工作成本</small><b class="r">${money(s.workCost)}</b></div>
-      <div class="card"><small>淨利</small><b>${money(s.workNet)}</b></div></div>
-    <div class="cards three"><div class="card"><small>工作件數</small><b>${s.jobs}</b><small>已完成 ${s.jobsDone}</small></div>
-      <div class="card"><small>3.5 噸 / 2.7 噸</small><b>${s.truck['3.5']} / ${s.truck['2.7']}</b></div>
-      <div class="card"><small>幫手費</small><b class="r">${money(s.helper)}</b></div></div>
-    <table><tr><th>服務</th><th>次數</th><th>平均收</th></tr>
+  const txs = db.all('transactions').filter(t => t.date.slice(0, 7) === ym && t.type !== 'transfer');
+  const head = `<div class="month-nav"><button data-stats="-1">‹</button><h2>${ym.replace('-', ' 年 ')} 月</h2><button data-stats="1">›</button></div>
+    <div class="stab">${[['work', '工作'], ['personal', '個人'], ['card', '卡費']].map(([k, t]) => `<button data-stab="${k}" class="${tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+
+  if (tab === 'work') {
+    const by = s.workCostBy, helper = by['幫手'] || 0;
+    const car = ['加油', '停車', '過路費', '租車', '車輛保養'].reduce((a, k) => a + (by[k] || 0), 0);
+    const other = s.workCost - helper - car;
+    // 每天：收入、成本、淨賺
+    const days = {};
+    for (const t of txs.filter(t => t.biz === '公')) {
+      const d = days[t.date] ||= { inc: 0, cost: 0 };
+      if (t.type === 'income') d.inc += +t.amount; else d.cost += +t.amount;
+    }
+    const svc = Object.entries(s.service).sort((a, b) => b[1].count - a[1].count);
+    return `${head}
+    <section><h3>淨利</h3>
+      <table class="formula">
+        <tr><td>工作收入</td><td class="g">${money(s.workIncome)}</td></tr>
+        <tr><td>－ 幫手</td><td class="r">${money(helper)}</td></tr>
+        <tr><td>－ 車子（油錢、停車、過路費、修車）</td><td class="r">${money(car)}</td></tr>
+        <tr><td>－ 其他成本（介紹費、收購、包材…）</td><td class="r">${money(other)}</td></tr>
+        <tr class="total"><td>＝ 淨利（真正賺到的）</td><td>${money(s.workNet)}</td></tr>
+      </table>
+      <p class="muted">工作 ${s.jobs} 件（完成 ${s.jobsDone}）｜3.5 噸 ${s.truck['3.5']} 次、2.7 噸 ${s.truck['2.7']} 次</p>
+    </section>
+    <section><h3>每天明細 <small class="muted">點一下看那天的行事曆</small></h3>
+      <table><tr><th>日期</th><th>收入</th><th>成本</th><th>淨賺</th></tr>
+      ${Object.keys(days).sort().map(d => `<tr data-day="${d}" class="link-row"><td>${md(d)}<small>（${WEEK[new Date(d + 'T00:00:00').getDay()]}）</small></td>
+        <td class="g">${days[d].inc ? money(days[d].inc) : ''}</td><td class="r">${days[d].cost ? money(days[d].cost) : ''}</td><td><b>${money(days[d].inc - days[d].cost)}</b></td></tr>`).join('') || '<tr><td colspan="4" class="muted">這個月沒有資料</td></tr>'}</table>
+    </section>
+    <section><h3>服務項目</h3><table><tr><th>服務</th><th>次數</th><th>平均收</th></tr>
       ${svc.map(([k, v]) => `<tr><td>${esc(k)} ${esc(code[k] || '')}</td><td>${v.count}</td><td>${v.done ? money(v.total / v.done) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">沒有工作</td></tr>'}</table>
-    <h4>工作成本明細</h4>${donut(s.workCostBy)}
-    <h4>近 6 個月工作淨利</h4>${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.workNet })))}
-  </section>
-  <section><h3>個人支出</h3>${donut(s.personalBy)}
-    <h4>近 6 個月個人支出</h4>${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.personal })))}
-    <h4>各付款方式支出</h4><table>${['現金', ...BANKS, '銀行戶頭'].map(a => `<tr><td>${a}</td><td>${money(s.byAccount[a] || 0)}</td></tr>`).join('')}</table>
-  </section>
-  <section><h3>財務流動</h3>
-    <div class="cards three"><div class="card"><small>總收入</small><b class="g">${money(s.totalIncome)}</b></div>
-      <div class="card"><small>總支出</small><b class="r">${money(s.totalExpense)}</b></div>
-      <div class="card"><small>淨流動</small><b>${money(s.flow)}</b></div></div>
-    ${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.flow })))}
-    <p class="muted">繳卡費算轉帳，不重複算成支出。</p>
-  </section>
-  <section><h3>本月要繳的卡費</h3><p class="muted">= ${bills.prev.replace('-', ' 年 ')} 月各卡消費</p>
+      <h4>近 6 個月淨利</h4>${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.workNet })))}
+    </section>`;
+  }
+
+  if (tab === 'personal') {
+    const pers = txs.filter(t => t.biz !== '公');
+    const otherIncome = pers.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0);
+    const left = s.workNet + otherIncome - s.personal;
+    return `${head}
+    <section><h3>這個月剩多少</h3>
+      <table class="formula">
+        <tr><td>工作淨利</td><td class="g">${money(s.workNet)}</td></tr>
+        ${otherIncome ? `<tr><td>＋ 其他收入</td><td class="g">${money(otherIncome)}</td></tr>` : ''}
+        <tr><td>－ 個人花費</td><td class="r">${money(s.personal)}</td></tr>
+        <tr class="total"><td>＝ 這個月存下來</td><td>${money(left)}</td></tr>
+      </table></section>
+    <section><h3>個人花費</h3>${donut(s.personalBy)}
+      <h4>付款方式</h4><table>${['現金', ...BANKS].map(a => `<tr><td>${a}</td><td>${money(s.byAccount[a] || 0)}</td></tr>`).join('')}</table></section>
+    <section><h3>明細 <small class="muted">點一下看那天的行事曆</small></h3><table>${detailRows(pers)}</table></section>
+    <section><h4>近 6 個月個人花費</h4>${bars(trend.map(t => ({ l: +t.m.slice(5) + '月', v: t.s.personal })))}</section>`;
+  }
+
+  return `${head}
+  <section><h3>本月要繳的卡費</h3><p class="muted">= ${bills.prev.replace('-', ' 年 ')} 月各卡刷的錢</p>
     <table>${BANKS.map(b => `<tr><td>${b}</td><td>${money(bills.bills[b])}</td><td>${bills.paidBy[b] ? '已繳 ' + money(bills.paidBy[b]) : ''}</td></tr>`).join('')}
       <tr class="total"><td>合計</td><td>${money(bills.total)}</td><td></td></tr></table>
-    <p class="muted">繳完在對話框打「繳台新 12000」就會記成轉帳。</p>
-  </section>`;
+    <p class="muted">繳完在對話框打「繳台新 12000」，會記成轉帳，不會重複算成花費。</p></section>`;
 }
 
 // ================= 修改視窗 =================
@@ -213,8 +254,8 @@ function settingsView() {
     <label>寄件者 Email（選填，讓搜尋更準）${accs.filter(a => a.kind === '信用卡').map(a => `<input data-sender="${a.id}" placeholder="${a.name} 的寄件者，例如 service@xxx.com.tw" value="${esc(a.sender || '')}">`).join('')}</label>
     <button data-act="save-gmail">儲存密碼與寄件者</button>
   </section>
-  <section><h4>快捷按鈕</h4><p class="muted">一行一個：顯示文字=輸入內容</p>
-    <textarea id="sc-text" rows="4">${esc(scs.map(s => `${s.label}=${s.input}`).join('\n'))}</textarea><button data-act="save-sc">儲存</button></section>
+  <section><h4>行事曆標籤</h4><p class="muted">改標籤名稱、顏色，以及對話框輸入時工作／記帳／記事自動用哪個標籤。</p>
+    <button class="primary" data-c-labels>編輯標籤</button></section>
   <section><h4>分類與關鍵字</h4><p class="muted">一行一個：名稱｜收入或支出｜公或私｜關鍵字,關鍵字</p>
     <textarea id="cat-text" rows="10">${esc(cats.map(c => `${c.name}｜${c.kind === 'income' ? '收入' : '支出'}｜${c.work ? '公' : '私'}｜${(c.keywords || []).join(',')}`).join('\n'))}</textarea>
     <button data-act="save-cat">儲存</button></section>
@@ -347,15 +388,17 @@ function render() {
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-stats],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-day],#gear');
+  const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-stats],[data-stab],[data-scat],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-day],#gear');
   if (!t) return;
   const d = t.dataset;
   if (t.id === 'gear') return settingsView();
   if (d.tab) { state.tab = d.tab; render(); if (d.tab === 'chat') $('#input').focus(); }
   else if (d.go) { state.tab = d.go; render(); }
   else if (d.edit) { const [col, id] = d.edit.split(':'); editRecord(col, id); }
-  else if (d.ev) CAL.openEvent(d.ev);
+  else if (d.ev) CAL.openForm(d.ev);
   else if (d.stats) { state.statsYm = ymAdd(state.statsYm, +d.stats); render(); }
+  else if (d.stab) { state.statsTab = d.stab; state.statsCat = ''; render(); window.scrollTo(0, 0); }
+  else if (d.scat !== undefined) { state.statsCat = state.statsCat === d.scat ? '' : d.scat; render(); }
   else if (d.close !== undefined) closeModal();
   else if (d.day) CAL.openDay(d.day);
   else if (d.sc) { const tx = db.get('transactions', d.sc); if (tx) submitInput(txInput(tx)); }

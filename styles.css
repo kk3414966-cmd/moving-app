@@ -232,6 +232,43 @@ main:has(.tmonth) .cal-head, main:has(.tweekview) .cal-head { padding: 0 8px; }
 .lb input { width: auto; } .lb i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
 .lb:has(input:checked) { border-color: #2ecc87; background: #eaf7f0; }
 
+.seg.txt { font-weight: 600; }
+.tc .dn { line-height: 16px; }
+/* 統計 */
+.stab { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 6px 0; position: sticky; top: 50px; z-index: 4; }
+.stab button { flex: 1; border: none; border-radius: 0; padding: 10px 0; font-size: 16px; }
+.stab button.on { background: var(--navy); color: #fff; font-weight: 700; }
+.formula td { padding: 8px 4px; font-size: 16px; }
+.formula tr.total td { font-size: 19px; border-top: 2px solid var(--ink); border-bottom: none; }
+.link-row { cursor: pointer; } .link-row:active, .link-row:hover { background: #f2f6ff; }
+td small { display: block; color: var(--muted); font-size: 12px; }
+td.ttl { text-align: left !important; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chips button { font-size: 13px; padding: 4px 10px; border-radius: 14px; }
+.chips button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+@media (min-width: 900px) { main:has(.stab) { max-width: 1000px; } }
+/* 電腦版：行事曆滿版、格子和字都放大 */
+@media (min-width: 900px) {
+  main:has(.tmonth), main:has(.tweekview) { max-width: none; padding: 8px 20px 80px; }
+  .tc { min-height: 150px; }
+  .tc .dn { font-size: 15px; margin: 4px 0 0 6px; }
+  .twk { font-size: 14px; padding: 6px 0; }
+  .seg { height: 17px; line-height: 17px; font-size: 13px; padding: 0 5px; }
+  .tt-more { font-size: 12px; left: 6px; }
+  .cal-head h2 { font-size: 24px; }
+  .cal-tools button { font-size: 15px; padding: 6px 12px; }
+  .wrow { min-height: 80px; } .wi { font-size: 16px; }
+  .fab { right: 32px; bottom: 90px; width: 64px; height: 64px; }
+}
+.cal-head h2 { white-space: nowrap; font-size: 18px; }
+.cal-tools { gap: 3px; flex-wrap: nowrap; }
+.cal-tools button { padding: 4px 7px; white-space: nowrap; }
+.seg-toggle button { padding: 4px 9px; }
+.swatch { width: 44px !important; height: 34px; padding: 2px; flex: none; }
+.f-row .wide-label { width: auto; flex: 1; }
+.row-between { display: flex; justify-content: space-between; align-items: center; }
+button.link { border: none; background: none; color: var(--blue); padding: 0; font-size: 14px; }
+
 #toast { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); background: #222d; color: #fff; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity .2s; z-index: 30; pointer-events: none; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 @media (max-width: 380px) { .cards.three { grid-template-columns: 1fr 1fr; } .card b { font-size: 16px; } }

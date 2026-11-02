@@ -35,7 +35,7 @@ export const DEFAULT_CATEGORIES = [
   { name: '清運處理費', kind: 'expense', work: true, keywords: ['處理費', '丟垃圾', '清潔隊'] },
   { name: '包材耗材', kind: 'expense', work: true, keywords: ['紙箱', '膠帶', '包材', '氣泡紙', '耗材'] },
   { name: '車輛保養', kind: 'expense', work: true, keywords: ['保養', '維修', '輪胎', '修車', '猛哥', '大寶'] },
-  { name: '二手家具收購', kind: 'expense', work: true, keywords: ['收購', '收床', '收沙發', '收家具'] },
+  { name: '二手家具收購', kind: 'expense', work: true, keywords: ['收購', '收床', '收沙發', '收家具', '床組'] },
   { name: '介紹費', kind: 'expense', work: true, keywords: ['介紹費'] },
   // 個人支出
   { name: '餐飲', kind: 'expense', work: false, keywords: ['早餐', '午餐', '晚餐', '宵夜', '便當', '飲料', '咖啡', '吃', '飯', '麵', '餐'] },
@@ -82,25 +82,32 @@ export function parseRoute(token) {
   return { route: place, from, to, fromFloor, toFloor };
 }
 
-// 日期：1105、1105、06、09~12（好幾天）、11/5、2026/11/5、明天、後天
+// 日期後面接著的其他天：「、06、09~12」或用空格「 10 11 12」
+// 後面緊接著 . : 點 樓 號 F 的數字是時間或樓層，不算日期
+const DAY_TAIL = '((?:(?:\\s*[、,，~～]\\s*|\\s+)\\d{1,2}(?![\\d.:點樓號Ff]))*)';
+function expandDays(y, mo, first, tail) {
+  const days = [first];
+  let last = first;
+  for (const p of tail.match(/(?:\s*[、,，~～]\s*|\s+)\d{1,2}/g) || []) {
+    const n = +p.replace(/\D/g, '');
+    if (/[~～]/.test(p)) for (let d = last + 1; d <= n; d++) days.push(d);
+    else days.push(n);
+    last = n;
+  }
+  return [...new Set(days)].filter(d => d >= 1 && d <= 31).map(d => ymd(new Date(y, mo - 1, d)));
+}
+
+// 日期：1105、1105、06、09~12、11/9 10 11 12（好幾天）、11/5、2026/11/5、明天、後天
 function takeDate(s, now) {
-  let m = s.match(/(?:^|\s)(\d{2})(\d{2})((?:\s*[、,，~～]\s*\d{1,2})*)(?=\s|$)/);
+  let m = s.match(new RegExp('(?:^|\\s)(\\d{2})(\\d{2})(?![\\d.:])' + DAY_TAIL));
   if (m && +m[1] >= 1 && +m[1] <= 12 && +m[2] >= 1 && +m[2] <= 31) {
-    const y = now.getFullYear(), mo = +m[1], days = [+m[2]];
-    let last = +m[2];
-    for (const p of m[3].match(/[、,，~～]\s*\d{1,2}/g) || []) {
-      const n = +p.replace(/\D/g, '');
-      if (/[~～]/.test(p)) for (let d = last + 1; d <= n; d++) days.push(d);
-      else days.push(n);
-      last = n;
-    }
-    const dates = [...new Set(days)].filter(d => d >= 1 && d <= 31).map(d => ymd(new Date(y, mo - 1, d)));
+    const dates = expandDays(now.getFullYear(), +m[1], +m[2], m[3]);
     return { date: dates[0], dates, rest: `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`.trim(), explicit: true };
   }
-  m = s.match(/^\s*(?:(\d{4})\/)?(\d{1,2})\/(\d{1,2})\s*/);
+  m = s.match(new RegExp('^\\s*(?:(\\d{4})\\/)?(\\d{1,2})\\/(\\d{1,2})(?![\\d.:])' + DAY_TAIL + '\\s*'));
   if (m) {
-    const y = m[1] ? +m[1] : now.getFullYear(), date = ymd(new Date(y, +m[2] - 1, +m[3]));
-    return { date, dates: [date], rest: s.slice(m[0].length), explicit: true };
+    const dates = expandDays(m[1] ? +m[1] : now.getFullYear(), +m[2], +m[3], m[4]);
+    return { date: dates[0], dates, rest: s.slice(m[0].length), explicit: true };
   }
   m = s.match(/^\s*(今天|明天|後天)\s*/);
   if (m) {
@@ -171,6 +178,8 @@ export function parseLine(input, opts = {}) {
   const out = { raw, date, dates, time, txs: [], event: null, kind: 'unknown' };
   const est = note && /舊家|新家|估價/.test(note) ? parseEstimate(note) : null;
   if (est && !/^\d{1,4}\./.test(rest)) rest = `${est.text} ${rest}`.trim();
+  // 行事曆上顯示的標題：保留前面的金額（$3000、9-5、-$200 停車…），不用點開就看得到
+  const fullTitle = rest;
 
   // 繳卡費：「繳台新 12000」「台新卡費 12000」
   let m = rest.match(/^(?:繳)?\s*(台新|匯豐|聯邦|玉山)\s*(?:卡費)?\s*\$?\s*([\d,]+)$/) || rest.match(/^繳\s*(台新|匯豐|聯邦|玉山)\s*卡費\s*\$?\s*([\d,]+)$/);
@@ -217,7 +226,7 @@ export function parseLine(input, opts = {}) {
     if (parts.length && (CONTACTS[parts[parts.length - 1]] || /^\d{8,10}$/.test(parts[parts.length - 1]))) contact = parts.pop();
     out.kind = 'job';
     out.event = {
-      type: 'job', date, time: t.time, title: rest, codeRaw: code.code, truck: code.truck, services: code.services,
+      type: 'job', date, time: t.time, title: lead ? fullTitle : rest, codeRaw: code.code, truck: code.truck, services: code.services,
       route: route.route, from: route.from, to: route.to, fromFloor: route.fromFloor, toFloor: route.toFloor,
       client: parts.join(' '), contact: CONTACTS[contact] || contact, done: !!lead, amount: lead ? lead.amount : 0,
     };
@@ -235,7 +244,7 @@ export function parseLine(input, opts = {}) {
     // 行程或記事
     const looksNatural = /搬|報價|報\d|元|塊/.test(rest) && rest.length > 8;
     out.kind = looksNatural && !inlineExp.length ? 'unknown' : 'event';
-    out.event = { type: 'event', date, time: t.time, title: rest };
+    out.event = { type: 'event', date, time: t.time, title: inlineExp.length ? fullTitle : rest };
   }
 
   for (const e of inlineExp) {

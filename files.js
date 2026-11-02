@@ -62,6 +62,7 @@ export async function readTimeTree(file) {
     p.date = date; p.time = r.time || (p.time === '00:00' ? '' : p.time); p.dates = [date];
     // TimeTree 的每一筆都保留成行程（標題照原本），收支掛在行程底下
     if (!p.event) p.event = { type: 'event', title: String(r.title) };
+    p.event.title = String(r.title).trim(); // 標題完全照 TimeTree 原本的寫法（含前面的金額）
     if (p.event) {
       Object.assign(p.event, { date, time: p.time, allDay: !!r.allDay || !p.time, label: r.label || 1, endTime: r.endTime || '' });
       if (r.endDate && String(r.endDate).slice(0, 10) > date) p.event.endDate = String(r.endDate).slice(0, 10);

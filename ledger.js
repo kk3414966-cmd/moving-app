@@ -14,6 +14,11 @@ export const ACCOUNTS = [
 export async function seed() {
   if (!db.all('accounts').length) await db.addMany('accounts', ACCOUNTS);
   if (!db.all('categories').length) await db.addMany('categories', DEFAULT_CATEGORIES.map((c, i) => ({ ...c, id: 'cat' + i, order: i })));
+  else for (const d of DEFAULT_CATEGORIES) { // 新版加的關鍵字補進去（使用者自己加的不動）
+    const c = db.all('categories').find(x => x.name === d.name);
+    const add = c ? d.keywords.filter(k => !(c.keywords || []).includes(k)) : [];
+    if (add.length) await db.update('categories', c.id, { keywords: [...(c.keywords || []), ...add] });
+  }
   if (!db.all('shortcuts').length) await db.addMany('shortcuts', [
     { id: 'sc1', label: '加油 $500', input: '-500加油', order: 1 },
     { id: 'sc2', label: '便當 $100', input: '-100便當', order: 2 },
@@ -37,6 +42,12 @@ export const DEFAULT_LABELS = [
 ];
 export const labels = () => db.settings().labels || DEFAULT_LABELS;
 export const labelOf = id => labels().find(l => l.id === +id) || labels()[0];
+
+// 對話框輸入時自動配的標籤：工作、工作支出、記帳、記事
+export const AUTO_KINDS = [['job', '工作'], ['workTx', '工作支出（幫手、油錢…）'], ['tx', '記帳（個人收支）'], ['note', '記事（一般行程）']];
+export const autoLabels = () => ({ job: 1, workTx: 6, tx: 7, note: 2, ...(db.settings().autoLabels || {}) });
+export const eventLabel = e => e.label ?? (e.type === 'job' ? autoLabels().job : autoLabels().note);
+export const txLabelId = t => t.label ?? (t.biz === '公' ? autoLabels().workTx : autoLabels().tx);
 
 // 這筆行程有沒有落在這一天（含多天、重複）
 const dayNum = d => Math.round(new Date(d + 'T00:00:00Z') / 864e5);
@@ -69,7 +80,7 @@ function findOpenJob(ev) {
 
 // 交通類支出：當天有工作才算「公」；幫手、修車、收購等工作成本一律算「公」
 const DAY_BASED = ['加油', '停車', '過路費', '租車'];
-function bizFor(tx, date) {
+export function bizFor(tx, date) {
   if (tx.type !== 'expense') return tx.type === 'income' && tx.work ? '公' : (tx.type === 'income' ? '私' : '');
   const c = catOf(tx.category);
   if (!c?.work) return '私';
@@ -82,9 +93,15 @@ export async function saveParsed(p, source = '手動') {
   let eventId = null;
   if (p.event) {
     const ev = { ...p.event, raw: p.raw, source };
+    if (ev.label == null) {
+      const a = autoLabels(), workCost = p.txs.some(t => t.type === 'expense' && catOf(t.category)?.work);
+      ev.label = ev.type === 'job' ? a.job : workCost ? a.workTx : p.txs.length ? a.tx : a.note;
+    }
     const open = ev.type === 'job' && ev.done ? findOpenJob(ev) : null;
     if (open) {
-      await db.update('events', open.id, { done: true, amount: ev.amount, doneRaw: p.raw });
+      // 跟 TimeTree 習慣一樣：完成後標題最前面寫上實收金額
+      const title = /^\s*(\$|\d+-\d+\s)/.test(open.title || '') ? open.title : `$${ev.amount} ${open.title || ''}`.trim();
+      await db.update('events', open.id, { done: true, amount: ev.amount, doneRaw: p.raw, title });
       eventId = open.id; saved.push({ col: 'events', id: open.id, matched: true });
       p.txs.forEach(t => { if (t.matchJob) t.date = open.date; });
     } else {
