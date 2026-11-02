@@ -4,6 +4,8 @@ import * as L from './ledger.js';
 import { aiReady, askClaude, itemsToParsed } from './ai.js';
 import * as F from './files.js';
 import * as G from './gmail.js';
+import * as CAL from './calendar.js';
+const { evTitle, txLabel } = CAL;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -13,7 +15,7 @@ const today = () => ymd(new Date());
 const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
 const ymAdd = (ym, n) => { const [y, m] = ym.split('-').map(Number); return ymd(new Date(y, m - 1 + n, 1)).slice(0, 7); };
 
-const state = { tab: 'chat', calYm: today().slice(0, 7), statsYm: today().slice(0, 7), pending: null, busy: '' };
+const state = { tab: 'chat', calYm: today().slice(0, 7), calMode: 'month', selDay: today(), statsYm: today().slice(0, 7), pending: null, busy: '' };
 
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -68,79 +70,7 @@ async function submitInput(text) {
   render();
 }
 
-// ================= 行事曆（仿 TimeTree：格子裡直接看到當天行程）=================
-const WEEK_MON = ['一', '二', '三', '四', '五', '六', '日'];
-const evTitle = e => e.title || [e.codeRaw && e.codeRaw + '.', e.route, e.client].filter(Boolean).join(' ');
-const txLabel = t => `${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '⇄'}${Math.round(t.amount).toLocaleString('zh-TW')} ${t.note || t.category}`;
-
-function dayItems(date) {
-  const evs = L.eventsOn(date).sort((a, b) => (a.time ? 1 : 0) - (b.time ? 1 : 0) || (a.time || '').localeCompare(b.time || ''));
-  const txs = L.txsOn(date).filter(t => !t.eventId);
-  return { evs, txs };
-}
-
-function calView() {
-  const ym = state.calYm, [y, m] = ym.split('-').map(Number);
-  const first = new Date(y, m - 1, 1), lead = (first.getDay() + 6) % 7;
-  const start = new Date(y, m - 1, 1 - lead), weeks = Math.ceil((lead + new Date(y, m, 0).getDate()) / 7);
-  const cells = [];
-  for (let i = 0; i < weeks * 7; i++) {
-    const dt = new Date(start); dt.setDate(start.getDate() + i);
-    const date = ymd(dt), other = dt.getMonth() !== m - 1, { evs, txs } = dayItems(date);
-    const lines = [
-      ...evs.map(e => {
-        const late = e.type === 'job' && !e.done && date < today();
-        const cls = e.type === 'job' ? (e.done ? 'job done' : 'job') : 'ev';
-        return `<div class="chip ${cls} ${e.time ? 'timed' : 'allday'} ${late ? 'late' : ''}">${e.time ? `<i></i>` : ''}${esc(evTitle(e))}</div>`;
-      }),
-      ...txs.map(t => `<div class="chip tx ${t.type}">${esc(txLabel(t))}</div>`),
-    ];
-    const max = 4, more = lines.length - max;
-    cells.push(`<div class="cell ${other ? 'other' : ''} ${date === today() ? 'today' : ''} w${dt.getDay()}" data-day="${date}">
-      <span class="dn">${dt.getDate()}</span>${lines.slice(0, more > 0 ? max - 1 : max).join('')}${more > 0 ? `<div class="more">+${more + 1}</div>` : ''}</div>`);
-  }
-  return `<div class="cal-head"><h2>${y}年${m}月</h2>
-      <div><button data-cal-today>今天</button><button data-cal="-1">‹</button><button data-cal="1">›</button></div></div>
-    <div class="grid tt" id="calgrid">${WEEK_MON.map((w, i) => `<div class="wk ${i === 6 ? 'sun' : i === 5 ? 'sat' : ''}">${w}</div>`).join('')}${cells.join('')}</div>`;
-}
-
-function daySheet(date) {
-  const info = L.dayInfo(date), { evs, txs } = dayItems(date), d = new Date(date);
-  const row = e => {
-    const late = e.type === 'job' && !e.done && date < today();
-    return `<div class="trow ${late ? 'late' : ''}" data-ev="${e.id}"><span class="tt-time">${e.time || '全天'}</span>
-      <span class="bar ${e.type === 'job' ? 'job' : 'ev'}"></span><span class="tt-title">${esc(evTitle(e))}
-      ${e.type === 'job' ? `<small>${e.done ? '實收 ' + money(e.amount) : late ? '還沒記收入' : '未完成'}</small>` : ''}${e.note ? '<small>有備註</small>' : ''}</span></div>`;
-  };
-  openModal(`<div class="sheet-head"><h3>${+date.slice(5, 7)}月${+date.slice(8)}日（${WEEK[d.getDay()]}）</h3><button data-close>✕</button></div>
-    ${evs.map(row).join('') || '<p class="muted">沒有行程</p>'}
-    ${txs.map(t => `<div class="trow" data-edit="transactions:${t.id}"><span class="tt-time">${t.time || ''}</span>
-      <span class="bar ${t.type}"></span><span class="tt-title">${esc(txLabel(t))}<small>${esc(t.category)}｜${esc(t.account || t.to)}${t.biz === '公' ? '｜公' : ''}</small></span></div>`).join('')}
-    ${info.workIncome || info.workCost ? `<p class="muted">當天工作收入 ${money(info.workIncome)}｜成本 ${money(info.workCost)}｜淨賺 <b>${money(info.net)}</b></p>` : ''}
-    <button class="primary wide" data-prefill="${date.slice(5, 7)}${date.slice(8)} ">＋ 在這天新增</button>`);
-}
-
-// 點一筆行程：看完整內容（含貼上的估價單）
-function eventDetail(id) {
-  const e = db.get('events', id); if (!e) return;
-  const code = L.codes(), d = new Date(e.date), late = e.type === 'job' && !e.done && e.date < today();
-  openModal(`<div class="sheet-head"><button data-day="${e.date}">‹ ${+e.date.slice(5, 7)}/${+e.date.slice(8)}</button><button data-close>✕</button></div>
-    <h3 class="ev-title">${esc(evTitle(e))}</h3>
-    <p>${+e.date.slice(5, 7)}月${+e.date.slice(8)}日（${WEEK[d.getDay()]}）${e.time ? ' ' + e.time : '　全天'}</p>
-    ${e.type === 'job' ? `<p class="muted">${e.truck} 噸｜${(e.services || []).map(s => esc(code[s] || s)).join('、')}${e.from ? `｜${esc(e.from)}→${esc(e.to)}` : ''}${e.fromFloor !== '' && e.fromFloor != null ? `｜樓層 ${esc(e.fromFloor)}→${esc(e.toFloor)}` : ''}${e.contact ? '｜' + esc(e.contact) : ''}</p>
-      ${e.done ? `<p><span class="tag ok">實收 ${money(e.amount)}</span></p>` : `<div class="row ${late ? 'late' : ''}"><input type="number" inputmode="numeric" placeholder="實收金額" data-amt="${e.id}"><button class="primary" data-done="${e.id}">完成</button></div>`}` : ''}
-    ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
-    <div class="row"><button data-edit="events:${e.id}">編輯</button><button data-copy="${e.id}">複製文字</button></div>`);
-}
-
-async function markDone(id) {
-  const amt = +document.querySelector(`[data-amt="${id}"]`).value;
-  if (!amt) return toast('請輸入實收金額');
-  const j = db.get('events', id);
-  await db.update('events', id, { done: true, amount: amt });
-  await db.add('transactions', { type: 'income', amount: amt, category: '搬家', work: true, biz: '公', account: '現金', date: j.date, time: j.time || '', note: j.title, eventId: id, source: '手動' });
-  toast('已標記完成'); eventDetail(id); render();
-}
+// 行事曆在 calendar.js
 
 // ================= 統計 =================
 function bars(data, fmt = money) {
@@ -406,7 +336,7 @@ const txInput = t => `${t.type === 'income' ? '+' : '-'}${t.amount}${t.note || t
 // ================= 主框架 =================
 function render() {
   const view = $('#view');
-  view.innerHTML = state.tab === 'chat' ? chatView() : state.tab === 'cal' ? calView() : statsView();
+  view.innerHTML = state.tab === 'chat' ? chatView() : state.tab === 'cal' ? CAL.calView() : statsView();
   document.querySelectorAll('nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
   $('#composer').classList.toggle('hide', state.tab !== 'chat');
   $('#shortcuts').innerHTML = recentTx().map(t => `<button data-sc="${t.id}">${esc(txLabel(t))}</button>`).join('');
@@ -417,21 +347,17 @@ function render() {
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-cal],[data-cal-today],[data-stats],[data-done],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-copy],[data-day],#gear');
+  const t = e.target.closest('[data-tab],[data-edit],[data-ev],[data-act],[data-stats],[data-close],[data-sc],[data-prefill],[data-go],[data-export],[data-day],#gear');
   if (!t) return;
   const d = t.dataset;
   if (t.id === 'gear') return settingsView();
   if (d.tab) { state.tab = d.tab; render(); if (d.tab === 'chat') $('#input').focus(); }
   else if (d.go) { state.tab = d.go; render(); }
   else if (d.edit) { const [col, id] = d.edit.split(':'); editRecord(col, id); }
-  else if (d.ev) eventDetail(d.ev);
-  else if (d.cal) { state.calYm = ymAdd(state.calYm, +d.cal); render(); }
-  else if (d.calToday !== undefined) { state.calYm = today().slice(0, 7); render(); }
+  else if (d.ev) CAL.openEvent(d.ev);
   else if (d.stats) { state.statsYm = ymAdd(state.statsYm, +d.stats); render(); }
-  else if (d.done) markDone(d.done);
   else if (d.close !== undefined) closeModal();
-  else if (d.copy) { const ev = db.get('events', d.copy); navigator.clipboard?.writeText(`${evTitle(ev)}${ev.note ? '\n' + ev.note : ''}`).then(() => toast('已複製')); }
-  else if (d.day) daySheet(d.day);
+  else if (d.day) CAL.openDay(d.day);
   else if (d.sc) { const tx = db.get('transactions', d.sc); if (tx) submitInput(txInput(tx)); }
   else if (d.prefill) { closeModal(); state.tab = 'chat'; render(); const i = $('#input'); i.value = d.prefill; i.focus(); }
   else if (d.export) doExport(d.export);
@@ -460,14 +386,7 @@ $('#input').addEventListener('input', grow);
 $('#input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
 });
-// 行事曆左右滑換月
-let touchX = null;
-document.addEventListener('touchstart', e => { touchX = e.target.closest('#calgrid') ? e.touches[0].clientX : null; }, { passive: true });
-document.addEventListener('touchend', e => {
-  if (touchX === null) return;
-  const dx = e.changedTouches[0].clientX - touchX; touchX = null;
-  if (Math.abs(dx) > 60) { state.calYm = ymAdd(state.calYm, dx < 0 ? 1 : -1); render(); }
-});
+CAL.initCalendar({ openModal, closeModal, toast, render: () => render(), editTx: id => editRecord('transactions', id), state });
 window.addEventListener('online', render);
 window.addEventListener('offline', render);
 

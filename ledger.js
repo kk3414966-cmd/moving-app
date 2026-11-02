@@ -27,7 +27,33 @@ export const categories = () => db.all('categories').sort((a, b) => (a.order ?? 
 export const catOf = name => categories().find(c => c.name === name);
 export const isCard = name => BANKS.includes(name);
 
-export const eventsOn = date => db.all('events').filter(e => e.date === date).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+// 標籤（照使用者 TimeTree 的設定）
+export const DEFAULT_LABELS = [
+  { id: 1, name: '工作行程', color: '#2ecc87' }, { id: 6, name: '工作支出', color: '#e73b3b' },
+  { id: 2, name: '其他工作', color: '#3dc2c8' }, { id: 3, name: '工作時數', color: '#47b2f7' },
+  { id: 9, name: '休假安排', color: '#fdc02d' }, { id: 7, name: '記帳', color: '#f35f8c' },
+  { id: 4, name: '出遊', color: '#948078' }, { id: 5, name: '黑色', color: '#212121' },
+  { id: 8, name: '珊瑚粉', color: '#fb7f77' }, { id: 10, name: '紫色', color: '#b38bdc' },
+];
+export const labels = () => db.settings().labels || DEFAULT_LABELS;
+export const labelOf = id => labels().find(l => l.id === +id) || labels()[0];
+
+// 這筆行程有沒有落在這一天（含多天、重複）
+const dayNum = d => Math.round(new Date(d + 'T00:00:00Z') / 864e5);
+export function covers(e, date) {
+  const start = e.date, end = e.endDate && e.endDate > e.date ? e.endDate : e.date;
+  if (date < start) return false;
+  if (!e.repeat) return date <= end;
+  const span = dayNum(end) - dayNum(start), off = dayNum(date) - dayNum(start);
+  if (e.repeatUntil && date > e.repeatUntil) return false;
+  if (e.repeat === 'daily') return true;
+  if (e.repeat === 'weekly') return off % 7 <= span;
+  const [, sm, sd] = start.split('-').map(Number), [, m, d] = date.split('-').map(Number);
+  if (e.repeat === 'monthly') return span ? off % 30 <= span && d >= sd && d <= sd + span : d === sd;
+  if (e.repeat === 'yearly') return m === sm && d >= sd && d <= sd + span;
+  return date <= end;
+}
+export const eventsOn = date => db.all('events').filter(e => covers(e, date)).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
 export const txsOn = date => db.all('transactions').filter(t => t.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 export const hasJob = date => db.all('events').some(e => e.date === date && e.type === 'job');
 
@@ -73,7 +99,7 @@ export async function saveParsed(p, source = '手動') {
     const date = t.date || p.date;
     const tx = { ...t, date, time: t.time || p.time || '', source, raw: p.raw };
     delete tx.matchJob;
-    if (eventId && p.event?.type === 'job' && t.type === 'income') tx.eventId = eventId;
+    if (eventId && ((p.event?.type === 'job' && t.type === 'income') || source === 'TimeTree')) tx.eventId = eventId;
     if (tx.type !== 'transfer' && !tx.biz) tx.biz = bizFor(tx, date);
     if (!tx.account && tx.type !== 'transfer') tx.account = db.settings().defaultAccount || '現金';
     const r = await db.add('transactions', tx); saved.push({ col: 'transactions', id: r.id });

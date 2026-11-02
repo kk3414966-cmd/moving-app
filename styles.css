@@ -163,6 +163,75 @@ main:has(#calgrid) { padding: 8px 4px; }
 .note { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 15px; }
 button.wide { width: 100%; margin-top: 12px; padding: 12px; }
 
+/* ===== 行事曆 v3（照 TimeTree） ===== */
+.cal-tools { display: flex; align-items: center; gap: 4px; }
+.cal-tools button { padding: 4px 9px; font-size: 14px; }
+.seg-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin-left: 2px; }
+.seg-toggle button { border: none; border-radius: 0; padding: 4px 12px; }
+.seg-toggle button.on { background: #2ecc87; color: #fff; }
+main:has(.tmonth), main:has(.tweekview) { padding: 6px 0 80px; }
+main:has(.tmonth) .cal-head, main:has(.tweekview) .cal-head { padding: 0 8px; }
+.twk { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 12px; text-align: center; color: var(--muted); border-bottom: 1px solid var(--line); padding: 3px 0; background: var(--card); }
+.twk .sat { color: var(--blue); } .twk .sun { color: var(--red); }
+.tmonth { background: var(--card); }
+.tweek { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--line); }
+.tc { min-height: 92px; border-right: 1px solid var(--line); position: relative; cursor: pointer; }
+.tc:last-child { border-right: none; }
+.tc .dn { display: inline-block; font-size: 12px; font-weight: 600; margin: 2px 0 0 3px; min-width: 18px; text-align: center; }
+.tc.d6 .dn { color: var(--blue); } .tc.d0 .dn { color: var(--red); }
+.tc.other { background: #f7f8fa; } .tc.other .dn { opacity: .45; }
+.tc.today .dn { background: #222; color: #fff !important; border-radius: 10px; }
+.tc.sel { background: #eaf7f0; }
+.tt-more { position: absolute; left: 3px; bottom: 2px; font-size: 10px; color: var(--muted); }
+.tsegs { position: absolute; inset: 0; pointer-events: none; }
+.seg { position: absolute; height: 14px; line-height: 14px; font-size: 10.5px; white-space: nowrap; overflow: hidden; padding: 0 3px; border-radius: 3px; }
+.seg.bar { color: #fff; font-weight: 600; }
+.seg.dot { display: flex; align-items: center; gap: 2px; color: var(--ink); }
+.seg.dot i { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+.seg.late { outline: 1.5px solid var(--red); outline-offset: -1px; }
+.seg.tx { font-size: 10px; } .seg.tx.expense { color: var(--red); } .seg.tx.income { color: var(--green); }
+.fab { position: fixed; right: 18px; bottom: 76px; width: 56px; height: 56px; border-radius: 50%; border: none; background: #2ecc87; color: #fff; font-size: 30px; line-height: 1; box-shadow: 0 4px 12px #0003; z-index: 7; }
+.week-nav { display: flex; justify-content: space-between; padding: 4px 8px; }
+.tweekview { background: var(--card); }
+.wrow { display: flex; border-bottom: 1px solid var(--line); min-height: 64px; cursor: pointer; }
+.wrow.today { background: #eaf7f0; }
+.wdate { width: 48px; flex: none; text-align: center; padding-top: 6px; }
+.wdate b { display: block; font-size: 18px; } .wdate small { color: var(--muted); }
+.wdate.d6 b { color: var(--blue); } .wdate.d0 b { color: var(--red); }
+.wlist { flex: 1; padding: 6px 8px 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.wi { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.wi i { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+.wi .wt { font-size: 12px; color: var(--muted); min-width: 34px; }
+.wi.tx.expense { color: var(--red); font-size: 13px; } .wi.tx.income { color: var(--green); font-size: 13px; }
+.wi.late { background: var(--warn-bg); }
+/* 行程內容 */
+.ev-label { height: 6px; border-radius: 3px; margin: 2px 0 8px; }
+.ev-when { font-size: 16px; line-height: 1.6; }
+.ev-meta { display: flex; gap: 14px; color: var(--muted); font-size: 14px; }
+.ev-meta i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+/* 新增／編輯表單 */
+#evform .sheet-head b { font-size: 16px; }
+#evform .sheet-head .primary { background: #2ecc87; border-color: #2ecc87; color: #fff; font-size: 15px; padding: 6px 16px; border-radius: 16px; }
+.f-title { font-size: 20px; border: none; border-bottom: 2px solid var(--line); border-radius: 0; background: none; margin: 6px 0 4px; padding: 10px 2px; }
+.f-title:focus { outline: none; border-color: #2ecc87; }
+.f-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.f-row > span { color: var(--muted); font-size: 14px; flex: none; width: 40px; }
+.f-row > div { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }
+.f-row input[type=date] { width: auto; flex: 1; max-width: 170px; }
+.f-row input[type=time] { width: 108px; }
+.f-row select { width: auto; }
+.f-row.col { flex-direction: column; align-items: stretch; }
+.f-row.col > span { width: auto; }
+.switch { position: relative; width: 44px; height: 26px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch i { position: absolute; inset: 0; background: #ccc; border-radius: 13px; transition: .2s; }
+.switch i::after { content: ''; position: absolute; width: 22px; height: 22px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + i { background: #2ecc87; } .switch input:checked + i::after { left: 20px; }
+.labels { display: grid !important; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.lb { display: flex !important; align-items: center; gap: 6px; margin: 0 !important; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink) !important; font-size: 14px !important; }
+.lb input { width: auto; } .lb i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.lb:has(input:checked) { border-color: #2ecc87; background: #eaf7f0; }
+
 #toast { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); background: #222d; color: #fff; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity .2s; z-index: 30; pointer-events: none; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 @media (max-width: 380px) { .cards.three { grid-template-columns: 1fr 1fr; } .card b { font-size: 16px; } }

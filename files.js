@@ -59,8 +59,17 @@ export async function readTimeTree(file) {
     const date = String(r.date).slice(0, 10).replace(/\//g, '-');
     const p = parseLine(String(r.title), { now: new Date(date + 'T00:00'), categories: cats });
     if (!p) return null;
-    p.date = date; p.time = r.time || (p.time === '00:00' ? '' : p.time);
-    if (p.event) { p.event.date = date; p.event.time = p.time; if (r.note) p.event.note = r.note; if (p.kind === 'unknown') p.kind = 'event'; }
+    p.date = date; p.time = r.time || (p.time === '00:00' ? '' : p.time); p.dates = [date];
+    // TimeTree 的每一筆都保留成行程（標題照原本），收支掛在行程底下
+    if (!p.event) p.event = { type: 'event', title: String(r.title) };
+    if (p.event) {
+      Object.assign(p.event, { date, time: p.time, allDay: !!r.allDay || !p.time, label: r.label || 1, endTime: r.endTime || '' });
+      if (r.endDate && String(r.endDate).slice(0, 10) > date) p.event.endDate = String(r.endDate).slice(0, 10);
+      const freq = String(r.repeat || '').match(/FREQ=(\w+)/);
+      if (freq) p.event.repeat = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[freq[1]] || '';
+      if (r.note) p.event.note = r.note;
+      if (p.kind === 'unknown') p.kind = 'event';
+    }
     p.txs.forEach(t => { t.date = date; t.time = p.time; });
     return p;
   }).filter(Boolean);
