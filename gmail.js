@@ -11,9 +11,9 @@ let token = null, tokenExp = 0;
 
 // 照使用者信箱裡實際的寄件者設定，只抓「消費通知」和「信用卡帳單」，廣告信、登入通知都不抓
 const DEFAULT_QUERY = {
-  台新: 'from:webmaster@bhurecv.taishinbank.com.tw subject:信用卡電子帳單',
+  台新: 'from:webmaster@bhurecv.taishinbank.com.tw subject:信用卡電子帳單 -subject:說明書',
   匯豐: '(from:noreply@messaging.hsbc.com.tw subject:消費通知) OR (from:cards@estatements.hsbc.com.tw subject:信用卡帳單)',
-  聯邦: '(from:ub_notice@cards.ubot.com.tw subject:消費通知) OR (from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知)',
+  聯邦: '(from:ub_notice@cards.ubot.com.tw subject:消費通知) OR (from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知 -subject:繳款通知)',
   玉山: 'from:estatement@esunbank.com subject:信用卡電子帳單',
 };
 
@@ -21,7 +21,7 @@ const DEFAULT_QUERY = {
 const STATEMENT_QUERY = {
   台新: DEFAULT_QUERY.台新,
   匯豐: 'from:cards@estatements.hsbc.com.tw subject:信用卡帳單',
-  聯邦: 'from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知',
+  聯邦: 'from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知 -subject:繳款通知',
   玉山: DEFAULT_QUERY.玉山,
 };
 
@@ -77,6 +77,19 @@ async function pool(list, n, fn) {
   const out = []; let i = 0;
   await Promise.all([...Array(Math.min(n, list.length))].map(async () => { while (i < list.length) { const k = i++; out[k] = await fn(list[k], k); } }));
   return out;
+}
+
+// 繳款截止日一定在帳單月份後 0～2 個月；年份讀錯（例如 2025 年 9 月的帳單寫成 2026/11/13）就照主旨的年月改回來
+function fixDue(subject, due) {
+  const m = subject.match(/(\d{2,4})年\s*(\d{1,2})月/), d = (due || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m || !d) return due;
+  const y = +m[1] < 1911 ? +m[1] + 1911 : +m[1], start = y * 12 + +m[2] - 1;
+  for (const yy of [+d[1], y, y + 1]) { // 先只改年份
+    const gap = (yy * 12 + +d[2] - 1) - start;
+    if (gap >= 0 && gap <= 2) return `${yy}-${d[2]}-${d[3]}`;
+  }
+  const k = start + 1; // 月份也不對：用帳單的下個月
+  return `${Math.floor(k / 12)}-${String(k % 12 + 1).padStart(2, '0')}-${d[3]}`;
 }
 
 // 有些帳單 PDF 的明細會被讀成兩遍：每一筆都剛好出現偶數次、加起來是應繳金額的兩倍，就只留一半
@@ -139,7 +152,7 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}, hi
       if (task === 'statement') found = undoubled(found);
       const out = [];
       found.forEach((it, i) => {
-        if (it.kind === 'transfer') { bills.push({ bank, amount: it.amount, dueDate: it.date, subject, msgId: id }); return; }
+        if (it.kind === 'transfer') { bills.push({ bank, amount: it.amount, dueDate: fixDue(subject, it.date), subject, msgId: id }); return; }
         out.push({
           type: it.kind === 'income' ? 'income' : 'expense', amount: it.amount, date: it.date, time: it.time,
           category: it.category, account: bank, note: it.merchant || it.title, source: 'Gmail', externalId: `${id}#${task}#${i}`, kindOfMail: task,
