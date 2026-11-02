@@ -79,8 +79,10 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
   const pw = db.settings().pdfPasswords || {};
   const jobs = [];
   for (const bank of BANKS) {
-    const sender = accounts.find(a => a.name === bank)?.sender;
-    const q = `${sender ? `from:(${sender})` : DEFAULT_QUERY[bank]} newer_than:${days}d`;
+    // 使用者填的寄件者：去掉 < > 空白，已經在預設清單裡的就不重複加
+    const extra = (accounts.find(a => a.name === bank)?.sender || '').replace(/[<>\s]/g, '').split(/[,，;；]/)
+      .filter(s => s.includes('@') && !DEFAULT_QUERY[bank].includes(s));
+    const q = `(${DEFAULT_QUERY[bank]})${extra.map(s => ` OR from:${s}`).join('')} newer_than:${days}d`;
     const list = await gget(`messages?maxResults=60&q=${encodeURIComponent(q)}`);
     for (const { id } of list.messages || []) if (!done.has(id)) jobs.push({ bank, id });
   }
