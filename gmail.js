@@ -9,27 +9,28 @@ const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 let token = null, tokenExp = 0;
 
-// 沒在帳戶設定填寄件者時，用銀行名稱＋關鍵字搜尋
+// 照使用者信箱裡實際的寄件者設定，只抓「消費通知」和「信用卡帳單」，廣告信、登入通知都不抓
 const DEFAULT_QUERY = {
-  台新: '(台新 OR taishinbank) (刷卡 OR 消費 OR 帳單)',
-  匯豐: '(匯豐 OR hsbc) (刷卡 OR 消費 OR 帳單)',
-  聯邦: '(聯邦 OR ubot) (刷卡 OR 消費 OR 帳單)',
-  玉山: '(玉山 OR esunbank) (刷卡 OR 消費 OR 帳單)',
+  台新: 'from:webmaster@bhurecv.taishinbank.com.tw subject:信用卡電子帳單',
+  匯豐: '(from:noreply@messaging.hsbc.com.tw subject:消費通知) OR (from:cards@estatements.hsbc.com.tw subject:信用卡帳單)',
+  聯邦: '(from:ub_notice@cards.ubot.com.tw subject:消費通知) OR (from:estatement@ebillv2.card.ubot.com.tw subject:信用卡電子帳單 -subject:入帳通知)',
+  玉山: 'from:estatement@esunbank.com subject:信用卡電子帳單',
 };
 
-function loadGis() {
+let gis;
+export function preload() {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
-  return new Promise((ok, fail) => {
+  return gis ||= new Promise((ok, fail) => {
     const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client';
-    s.onload = ok; s.onerror = () => fail(new Error('Google 登入元件載入失敗')); document.head.appendChild(s);
+    s.onload = ok; s.onerror = () => { gis = null; fail(new Error('Google 登入元件載入失敗，請確認網路')); }; document.head.appendChild(s);
   });
 }
 
-export async function connect() {
-  if (!googleClientId) throw new Error('還沒設定 Google OAuth 用戶端 ID（見設定教學）');
-  if (token && Date.now() < tokenExp) return token;
-  await loadGis();
-  return new Promise((ok, fail) => {
+// 要在按鈕被按下的當下呼叫，手機才不會擋掉授權視窗
+export function connect() {
+  if (!googleClientId) return Promise.reject(new Error('還沒設定 Google OAuth 用戶端 ID'));
+  if (token && Date.now() < tokenExp) return Promise.resolve(token);
+  const go = () => new Promise((ok, fail) => {
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: googleClientId, scope: SCOPE,
       callback: r => {
@@ -38,9 +39,11 @@ export async function connect() {
         db.saveSettings({ gmailLinked: true, gmailLinkedAt: new Date().toISOString() });
         ok(token);
       },
+      error_callback: e => fail(new Error(e?.type === 'popup_closed' ? '授權視窗被關掉了' : e?.type === 'popup_failed_to_open' ? '授權視窗被擋住了，請允許彈出視窗後再按一次' : 'Gmail 授權失敗')),
     });
     client.requestAccessToken({ prompt: db.settings().gmailLinked ? '' : 'consent' });
   });
+  return window.google?.accounts?.oauth2 ? go() : preload().then(go);
 }
 
 async function gget(path) {
@@ -61,20 +64,31 @@ function walk(part, out = { text: '', html: '', pdfs: [] }) {
   return out;
 }
 
+// 同時處理幾封，比一封一封快很多
+async function pool(list, n, fn) {
+  const out = []; let i = 0;
+  await Promise.all([...Array(Math.min(n, list.length))].map(async () => { while (i < list.length) { const k = i++; out[k] = await fn(list[k], k); } }));
+  return out;
+}
+
 /** 讀最近 days 天的銀行信，回傳待確認的消費清單 */
 export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
   await connect();
   const accounts = db.all('accounts');
   const done = new Set(db.all('transactions').map(t => t.externalId).filter(Boolean).map(x => x.split('#')[0]));
   const pw = db.settings().pdfPasswords || {};
-  const items = [];
+  const jobs = [];
   for (const bank of BANKS) {
     const sender = accounts.find(a => a.name === bank)?.sender;
     const q = `${sender ? `from:(${sender})` : DEFAULT_QUERY[bank]} newer_than:${days}d`;
-    const list = await gget(`messages?maxResults=50&q=${encodeURIComponent(q)}`);
-    for (const { id } of list.messages || []) {
-      if (done.has(id)) continue;
-      onProgress(`${bank}：讀取信件…`);
+    const list = await gget(`messages?maxResults=60&q=${encodeURIComponent(q)}`);
+    for (const { id } of list.messages || []) if (!done.has(id)) jobs.push({ bank, id });
+  }
+  if (!jobs.length) return [];
+  let finished = 0;
+  onProgress(`找到 ${jobs.length} 封銀行信，整理中…`);
+  const results = await pool(jobs, 4, async ({ bank, id }) => {
+    try {
       const msg = await gget(`messages/${id}?format=full`);
       const parts = walk(msg.payload);
       const subject = (msg.payload.headers || []).find(h => h.name === 'Subject')?.value || '';
@@ -84,15 +98,15 @@ export async function fetchCardTransactions(days = 40, onProgress = () => {}) {
         const data = att.body.attachmentId ? (await gget(`messages/${id}/attachments/${att.body.attachmentId}`)).data : att.body.data;
         const buf = Uint8Array.from(b64(data), c => c.charCodeAt(0)).buffer;
         try { text = await pdfToText(buf, [pw[bank], pw.all]); task = 'statement'; }
-        catch (e) { items.push({ error: `${bank}帳單：${e.message}`, externalId: id }); continue; }
-      }
-      onProgress(`${bank}：整理消費明細…`);
+        catch (e) { return [{ error: `${bank}帳單（${subject}）：${e.message}`, externalId: id }]; }
+      } else if (/帳單/.test(subject)) task = 'statement';
       const found = await askClaude(task, `卡別：${bank}\n${text.slice(0, 55000)}`);
-      found.forEach((it, i) => items.push({
+      return found.map((it, i) => ({
         type: it.kind === 'income' ? 'income' : 'expense', amount: it.amount, date: it.date, time: it.time,
         category: it.category, account: bank, note: it.merchant || it.title, source: 'Gmail', externalId: `${id}#${task}#${i}`, kindOfMail: task,
       }));
-    }
-  }
-  return items.filter(x => x.error || x.amount > 0);
+    } catch (e) { return [{ error: `${bank}：${e.message}`, externalId: id }]; }
+    finally { onProgress(`整理中… ${++finished}／${jobs.length} 封`); }
+  });
+  return results.flat().filter(x => x.error || x.amount > 0);
 }

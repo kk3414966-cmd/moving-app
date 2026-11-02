@@ -263,6 +263,7 @@ function settingsView() {
     <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
   <div class="row"><button data-close>關閉</button></div>`);
 
+  G.preload().catch(() => {}); // 先載好 Google 授權元件，手機按下去才不會被擋
   $('#tt-file').onchange = async e => importTimeTree(e.target.files[0]);
   $('#bill-file').onchange = async e => importBillFile(e.target.files[0], $('#bill-bank').value);
 }
