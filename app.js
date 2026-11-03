@@ -5,6 +5,8 @@ import { aiReady, askClaude, itemsToParsed } from './ai.js';
 import * as F from './files.js';
 import * as G from './gmail.js';
 import * as CAL from './calendar.js';
+import * as AV from './availability.js';
+import { openSiteCms } from './sitecms.js';
 const { evTitle, txLabel } = CAL;
 
 const $ = s => document.querySelector(s);
@@ -150,6 +152,7 @@ function detailRows(list) {
 }
 
 function statsView() {
+  db.ensureMonths(state.statsYm, 6); // 舊月份、近 6 個月趨勢：沒讀過的才去讀
   const ym = state.statsYm, s = L.monthStats(ym), code = L.codes(), bills = L.cardBills(ym), tab = state.statsTab || 'work';
   const trend = [-5, -4, -3, -2, -1, 0].map(n => { const m = ymAdd(ym, n); return { m, s: L.monthStats(m) }; });
   const txs = db.all('transactions').filter(t => t.date.slice(0, 7) === ym && t.type !== 'transfer');
@@ -338,6 +341,8 @@ function settingsView() {
     <p>${db.getMode() === 'local' ? '目前是<b>本機試用模式</b>：資料只存在這支手機的瀏覽器。照「設定教學」連上 Firebase 後就能雲端同步。' : `已登入：${esc(db.userName())}`}</p>
     ${db.getMode() === 'cloud' ? '<button data-act="logout">登出</button>' : ''}
   </section>
+  <section><h4>官網內容</h4><p class="muted">換封面照、加搬家影片和案例、貼 Google 評論、上架二手家具。</p>
+    <button class="primary" data-act="site-cms">編輯官網內容</button></section>
   <section><h4>匯出 Excel</h4><div class="row">
     <button data-export="${ym}">匯出本月</button><button data-export="${year}">匯出 ${year} 全年（報稅用）</button></div></section>
   <section><h4>匯入</h4>
@@ -445,6 +450,7 @@ function openCategoryEditor() {
       delArm = '';
       if (c.name === fallback) toast(`「${fallback}」不能刪`);
       else {
+        await db.ensureWhere('transactions', 'category', c.name); // 3 個月以前的也一起改
         await L.recategorize(db.all('transactions').filter(t => t.category === c.name), fallback);
         await db.remove('categories', c.id); toast(`已刪除「${c.name}」`);
       }
@@ -512,6 +518,10 @@ function reviewImport(items, title, extra = {}) {
 async function readGmail(reset, history) {
   const ready = G.connect().catch(e => e); // 一按就先要 Google 授權，手機才不會擋視窗
   try {
+    // 要知道哪些信已經匯過：平常讀近 130 天就夠（帳單會列到上個月的刷卡）；
+    // 清除重抓、抓以前的帳單才把 Gmail 匯入的全部讀進來（約 3,000 筆，很少用）
+    if (reset || history) await db.ensureWhere('transactions', 'source', 'Gmail');
+    else await db.ensureRange(ymd(new Date(Date.now() - 130 * 864e5)), today());
     if (history) toast('連結 Gmail 中…（以前的帳單比較多，要等幾分鐘）');
     else if (reset) {
       // 清掉之前從 Gmail 匯入的，全部重新抓
@@ -631,6 +641,7 @@ document.addEventListener('click', async e => {
   else if (d.act === 'gmail-reset') readGmail(true);
   else if (d.act === 'gmail-history') readGmail(false, true);
   else if (d.act === 'cat-editor') openCategoryEditor();
+  else if (d.act === 'site-cms') openSiteCms({ openModal, closeModal, toast, modalHead });
   else if (d.act === 'logout') db.logout();
   else if (d.act === 'login') db.login().catch(err => toast('登入失敗：' + err.message));
   else if (d.act?.startsWith('save-')) saveSettingsForm(d.act);
@@ -659,9 +670,14 @@ window.addEventListener('offline', render);
     $('#composer').classList.add('hide');
     return;
   }
-  await L.seed();
   db.onChange(() => { if (!$('#modal').classList.contains('open')) render(); });
   render();
+  // 等雲端資料對完才放預設值、算官網，免得手機暫存還沒齊就蓋掉
+  db.synced().then(async ok => {
+    if (!ok) return;
+    await L.seed();
+    AV.start(); // 行程有變動就自動更新官網「已滿日期」
+  });
   $('#input').focus();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 })();

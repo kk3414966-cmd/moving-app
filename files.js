@@ -20,6 +20,7 @@ export async function loadPDF() {
 // ---- 匯出 Excel ----
 export async function exportExcel(from, to, filename) {
   const XLSX = await loadXLSX();
+  await db.ensureRange(from, to); // 匯出舊月份：先把那段日期讀進來
   const inRange = d => d >= from && d <= to;
   const code = codes();
   const jobs = db.all('events').filter(e => e.type === 'job' && inRange(e.date)).sort((a, b) => a.date.localeCompare(b.date));

@@ -383,3 +383,20 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 #toast { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); background: #222d; color: #fff; padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity .2s; z-index: 30; pointer-events: none; max-width: 90%; text-align: center; }
 #toast.show { opacity: 1; }
 @media (max-width: 380px) { .cards.three { grid-template-columns: 1fr 1fr; } .card b { font-size: 16px; } }
+
+/* ===== 官網內容（後台） ===== */
+.cms-sec { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.cms-sec h4 { margin: 0 0 4px; }
+.cms-hero img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 10px; display: block; margin: 6px 0; }
+.cms-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 10px 0; background: #fafbfd; display: grid; gap: 8px; }
+.cms-thumb { display: flex; gap: 10px; align-items: center; }
+.cms-thumb img { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; }
+.cms-thumb span { width: 96px; height: 72px; border-radius: 8px; background: #eef1f7; display: grid; place-items: center; font-size: 12px; color: var(--muted); }
+.cms-fields { display: grid; gap: 6px; }
+.cms-fields label { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+.cms-check { display: flex !important; align-items: center; gap: 6px; }
+.cms-check input { width: auto; }
+.cms-ops { display: flex; gap: 8px; justify-content: flex-end; }
+.cms-pick { display: inline-block; border: 1px dashed var(--navy); color: var(--navy); border-radius: 10px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
+.cms-pick input { display: none; }
+.cms-save { position: sticky; bottom: 0; background: #fff; padding: 10px 0; }

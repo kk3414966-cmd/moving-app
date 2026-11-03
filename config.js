@@ -12,5 +12,9 @@ export const firebaseConfig = {
 // Cloudflare Worker 的網址（Claude 解析用），例如 'https://moving-ai.你的帳號.workers.dev'
 export const workerUrl = 'https://moving-ai.kk3414966.workers.dev';
 
+// 官網後台：存內容、存照片的 Cloudflare Worker，以及照片放在 GitHub 的位置
+export const siteWorkerUrl = 'https://moving-booking.kk3414966.workers.dev';
+export const siteFilesBase = 'https://raw.githubusercontent.com/kk3414966-cmd/business-sites/main/moving/';
+
 // Google Cloud OAuth 用戶端 ID（讀 Gmail 用），例如 '1234-abc.apps.googleusercontent.com'
 export const googleClientId = '814553133689-17v8qg60fu6u5kmn6s8bgjtjfru77qtg.apps.googleusercontent.com';

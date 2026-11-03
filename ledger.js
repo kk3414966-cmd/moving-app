@@ -88,8 +88,19 @@ export function bizFor(tx, date) {
 }
 
 // 改分類的公私設定，以前記的同分類全部一起改，回傳改了幾筆
+// 平常手機裡只有最近 3 個月：要一起改以前的帳，先把那個分類的帳（和那幾天的行程）讀進來
+async function loadCategory(name, withDays) {
+  await db.ensureWhere('transactions', 'category', name);
+  if (withDays) await loadDaysOf(db.all('transactions').filter(t => t.category === name));
+}
+async function loadDaysOf(list) {
+  const dates = list.map(t => t.date).filter(Boolean).sort();
+  if (dates.length) await db.ensureRange(dates[0], dates[dates.length - 1]);
+}
+
 export async function setCategoryBiz(id, mode) {
   const c = db.get('categories', id);
+  await loadCategory(c.name, mode === 'day'); // 「當天有工作才算公」才要看以前的行程
   await db.update('categories', id, { bizMode: mode, work: mode !== '私' });
   let n = 0;
   for (const t of db.all('transactions').filter(t => t.type === 'expense' && t.category === c.name)) {
@@ -102,6 +113,7 @@ export async function setCategoryBiz(id, mode) {
 // 分類改名：以前記的也跟著改名
 export async function renameCategory(id, name) {
   const old = db.get('categories', id).name;
+  await db.ensureWhere('transactions', 'category', old);
   await db.update('categories', id, { name });
   for (const t of db.all('transactions').filter(t => t.category === old)) await db.update('transactions', t.id, { category: name });
 }
@@ -110,6 +122,7 @@ export async function renameCategory(id, name) {
 export const sameMerchant = (key, type = 'expense') => !key ? [] :
   db.all('transactions').filter(t => t.type === type && (t.note || '').toLowerCase().includes(key.toLowerCase()));
 export async function recategorize(list, category) {
+  await loadDaysOf(list); // 公私要看那天有沒有工作
   for (const t of list) await db.update('transactions', t.id, { category, biz: bizFor({ ...t, category }, t.date) });
 }
 // 記住「名稱包含 X → 分類 Y」，之後從 Gmail 抓到的自動套用

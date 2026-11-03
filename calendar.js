@@ -43,6 +43,7 @@ export function calView() {
   const ym = st.calYm, [y, m] = ym.split('-').map(Number);
   const first = ymd(new Date(y, m - 1, 1)), lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;
   const start = addDays(first, -lead), weeks = Math.ceil((lead + new Date(y, m, 0).getDate()) / 7);
+  db.ensureRange(start, addDays(start, weeks * 7 - 1)); // 翻到舊月份才去讀那幾個月
   const all = items().filter(it => it.kind === 'tx' || true);
   let html = '';
   for (let w = 0; w < weeks; w++) {
@@ -116,6 +117,7 @@ const fab = () => `<button class="fab" data-c-new aria-label="新增行程">＋<
 function weekView() {
   const st = C.state, base = st.selDay || today(), dow = (new Date(base + 'T00:00:00').getDay() + 6) % 7;
   const mon = addDays(base, -dow + (st.weekOff || 0) * 7), days = [...Array(7)].map((_, i) => addDays(mon, i));
+  db.ensureRange(mon, days[6]);
   const all = items();
   const rows = days.map(d => {
     const list = all.filter(it => coversItem(it, d)).sort((a, b) => (b.bar - a.bar) || (a.kind === 'tx') - (b.kind === 'tx') || (a.rec.time || '').localeCompare(b.rec.time || ''));
@@ -260,7 +262,11 @@ function openSearch() {
     const k = q.value.trim().toLowerCase();
     if (!k) { res.innerHTML = ''; return; }
     const hit = db.all('events').filter(e => `${e.title} ${e.note || ''}`.toLowerCase().includes(k)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60);
-    res.innerHTML = hit.map(e => `<div class="trow" data-c-ev="${e.id}"><span class="tt-time">${e.date.slice(2).replace(/-/g, '/')}</span><span class="bar" style="background:${colorOf(e)}"></span><span class="tt-title">${esc(evTitle(e))}</span></div>`).join('') || '<p class="muted center">找不到</p>';
+    res.innerHTML = (hit.map(e => `<div class="trow" data-c-ev="${e.id}"><span class="tt-time">${e.date.slice(2).replace(/-/g, '/')}</span><span class="bar" style="background:${colorOf(e)}"></span><span class="tt-title">${esc(evTitle(e))}</span></div>`).join('') || '<p class="muted center">找不到</p>')
+      // 平常只有最近 3 個月的行程在手機裡，要找更早的按這個（全部讀一次，同一次打開只讀一次）
+      + (db.isAllLoaded('events') ? '' : '<button class="wide" id="c-more">也找 3 個月以前的行程</button>');
+    const more = document.querySelector('#c-more');
+    if (more) more.onclick = async () => { more.disabled = true; more.textContent = '讀取中…'; await db.ensureAll('events'); q.oninput(); };
   };
 }
 
