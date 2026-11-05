@@ -230,13 +230,30 @@ function statsView() {
 }
 
 // ================= 修改視窗 =================
+// 彈出視窗：點視窗外的空白處、或按手機的「返回」，都能關掉（返回靠 history 記一格）
+let modalPushed = false, modalBacking = false;
 function openModal(html) {
   const b = $('#modal-body'); b.onclick = b.onkeydown = b.onchange = null;
   b.innerHTML = html; $('#modal').classList.add('open');
+  if (!modalPushed) { history.pushState({ modal: 1 }, ''); modalPushed = true; }
 }
 // 視窗最上面一條：標題＋右上角關閉，捲到哪裡都按得到
 const modalHead = (title, back) => `<div class="modal-head">${back ? '<button class="icon-btn" data-back aria-label="回設定">‹</button>' : ''}<h3>${esc(title)}</h3><button class="icon-btn x" data-close aria-label="關閉">✕</button></div>`;
-function closeModal() { $('#modal').classList.remove('open'); $('#modal-body').innerHTML = ''; }
+function closeModal() {
+  $('#modal').classList.remove('open'); $('#modal-body').innerHTML = '';
+  if (modalPushed) { modalPushed = false; modalBacking = true; history.back(); }
+}
+window.addEventListener('popstate', () => {
+  if (modalBacking) { // 是我們自己關視窗時退的那一格；若剛好又開了新視窗，補回一格
+    modalBacking = false;
+    if ($('#modal').classList.contains('open')) { history.pushState({ modal: 1 }, ''); modalPushed = true; }
+    return;
+  }
+  if (modalPushed) { modalPushed = false; $('#modal').classList.remove('open'); $('#modal-body').innerHTML = ''; } // 按返回
+});
+let downOnBackdrop = false; // 從視窗裡按下、拖到外面放開，不算點空白處
+$('#modal').addEventListener('pointerdown', e => { downOnBackdrop = e.target === e.currentTarget; });
+$('#modal').addEventListener('click', e => { if (e.target === e.currentTarget && downOnBackdrop) closeModal(); });
 
 function editRecord(col, id, draft) {
   const r = draft || db.get(col, id);
@@ -341,6 +358,8 @@ function settingsView() {
     <p>${db.getMode() === 'local' ? '目前是<b>本機試用模式</b>：資料只存在這支手機的瀏覽器。照「設定教學」連上 Firebase 後就能雲端同步。' : `已登入：${esc(db.userName())}`}</p>
     ${db.getMode() === 'cloud' ? '<button data-act="logout">登出</button>' : ''}
   </section>
+  <section><h4>時間顯示</h4><p class="muted">行事曆的時間要用 24 小時制（15:30）還是 12 小時制（下午 3:30）。</p>
+    <button data-c-tf>時間顯示：${st.timeFormat === '12' ? '12' : '24'} 小時制（點一下切換）</button></section>
   <section><h4>官網內容</h4><p class="muted">換封面照、加搬家影片和案例、貼 Google 評論、上架二手家具。</p>
     <button class="primary" data-act="site-cms">編輯官網內容</button></section>
   <section><h4>匯出 Excel</h4><div class="row">
@@ -653,11 +672,13 @@ $('#composer').addEventListener('submit', e => {
   if (!v) return;
   i.value = ''; grow(); submitInput(v); i.focus();
 });
-// Enter 送出；要換行用 Shift＋Enter（貼上的多行文字會保留）
+// 電腦：Enter 送出，Shift＋Enter 換行；手機：Enter 就是換行，要送出按右邊的 ➤（貼上的多行文字會保留）
+const coarse = matchMedia('(pointer: coarse)').matches;
+$('#input').enterKeyHint = coarse ? 'enter' : 'send';
 const grow = () => { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 160) + 'px'; };
 $('#input').addEventListener('input', grow);
 $('#input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !coarse) { e.preventDefault(); $('#composer').requestSubmit(); }
 });
 CAL.initCalendar({ openModal, closeModal, toast, render: () => render(), editTx: id => editRecord('transactions', id), state });
 window.addEventListener('online', render);

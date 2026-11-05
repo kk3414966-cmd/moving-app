@@ -22,7 +22,16 @@ export const txLabel = t => `${t.type === 'income' ? '+' : t.type === 'expense' 
 const isLate = e => e.type === 'job' && !e.done && e.date < today();
 const colorOf = e => L.labelOf(L.eventLabel(e)).color;
 const txColor = t => L.labelOf(L.txLabelId(t)).color;
-const timeText = e => e.allDay || !e.time ? '全天' : `${e.time}${e.endTime && e.endTime !== e.time ? ' - ' + e.endTime : ''}`;
+// ---- 時間：12／24 小時制（存在設定 timeFormat，電腦手機同步）----
+const is12 = () => db.settings().timeFormat === '12';
+const pad = n => String(n).padStart(2, '0');
+const fmtTime = t => { if (!t) return ''; if (!is12()) return t; const [h, m] = t.split(':').map(Number); return `${h < 12 ? '上午' : '下午'} ${h % 12 || 12}:${pad(m)}`; };
+const tfLabel = () => `時間顯示：${is12() ? '12' : '24'} 小時制（點一下切換）`;
+// 開始時間往後一小時（跨過午夜就算隔天），結束時間沒特別設定就用這個
+const plusHour = (date, t) => { const [h, m] = t.split(':').map(Number); const d = new Date(`${date}T${pad(h)}:${pad(m)}:00`); d.setHours(d.getHours() + 1); return { date: ymd(d), time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }; };
+const endTimeOf = e => e.endTime || (e.time ? plusHour(e.date, e.time).time : '');
+const defaultStart = date => date === today() ? `${pad(Math.min(new Date().getHours() + 1, 23))}:00` : '10:00';
+const timeText = e => e.allDay || !e.time ? '全天' : `${fmtTime(e.time)} - ${fmtTime(endTimeOf(e))}`;
 
 // 行事曆上要畫的東西：行程＋沒有連到工作的收支
 function items() {
@@ -97,8 +106,8 @@ export function calView() {
       if (sg.it.kind === 'tx') return `<div class="seg txt" style="left:${left};width:${width};top:${top}px;color:${txColor(r)}">${esc(txLabel(r))}</div>`;
       const c = colorOf(r), late = isLate(r) ? 'late' : '';
       return sg.it.bar
-        ? `<div class="seg bar ${late}" style="left:${left};width:${width};top:${top}px;background:${c}">${esc(evTitle(r))}</div>`
-        : `<div class="seg txt ${late}" style="left:${left};width:${width};top:${top}px;color:${c}">${esc(evTitle(r))}</div>`;
+        ? `<div class="seg bar ${late}" data-evid="${r.id}" style="left:${left};width:${width};top:${top}px;background:${c}">${esc(evTitle(r))}</div>`
+        : `<div class="seg txt ${late}" data-evid="${r.id}" style="left:${left};width:${width};top:${top}px;color:${c}">${esc(evTitle(r))}</div>`;
     }).join('');
     html += `<div class="tweek">${cells}<div class="tsegs">${segHtml}</div></div>`;
   }
@@ -125,7 +134,7 @@ function weekView() {
     return `<div class="wrow ${d === today() ? 'today' : ''}" data-day="${d}">
       <div class="wdate d${x.getDay()}"><b>${x.getDate()}</b><small>${WEEK[x.getDay()]}</small></div>
       <div class="wlist">${list.map(it => it.kind === 'tx'
-        ? `<div class="wi" data-c-tx="${it.id}"><i style="background:${txColor(it.rec)}"></i><span class="wt">${it.rec.time || ''}</span><span style="color:${txColor(it.rec)}">${esc(txLabel(it.rec))}</span></div>`
+        ? `<div class="wi" data-c-tx="${it.id}"><i style="background:${txColor(it.rec)}"></i><span class="wt">${fmtTime(it.rec.time)}</span><span style="color:${txColor(it.rec)}">${esc(txLabel(it.rec))}</span></div>`
         : `<div class="wi ${isLate(it.rec) ? 'late' : ''}" data-c-ev="${it.id}"><i style="background:${colorOf(it.rec)}"></i><span class="wt">${timeText(it.rec)}</span>${esc(evTitle(it.rec))}</div>`).join('') || '<span class="muted">　</span>'}</div></div>`;
   }).join('');
   const t = `${+mon.slice(5, 7)}月${+mon.slice(8)}日 – ${+days[6].slice(5, 7)}月${+days[6].slice(8)}日`;
@@ -143,7 +152,7 @@ export function openDay(date) {
     ${evs.map(({ rec: e }) => `<div class="trow ${isLate(e) ? 'late' : ''}" data-c-ev="${e.id}">
       <span class="tt-time">${timeText(e).replace(' - ', '<br>')}</span><span class="bar" style="background:${colorOf(e)}"></span>
       <span class="tt-title">${esc(evTitle(e))}${e.type === 'job' ? `<small>${e.done ? '實收 ' + money(e.amount) : isLate(e) ? '還沒記收入' : '未完成'}</small>` : ''}</span></div>`).join('') || '<p class="muted center">沒有行程</p>'}
-    ${txs.map(({ rec: t }) => `<div class="trow" data-c-tx="${t.id}"><span class="tt-time">${t.time || ''}</span>
+    ${txs.map(({ rec: t }) => `<div class="trow" data-c-tx="${t.id}"><span class="tt-time">${fmtTime(t.time)}</span>
       <span class="bar" style="background:${txColor(t)}"></span><span class="tt-title">${esc(txLabel(t))}<small>${esc(t.category)}｜${esc(t.account || t.to)}${t.biz === '公' ? '｜公' : ''}</small></span></div>`).join('')}
     ${info.workIncome || info.workCost ? `<p class="muted">工作收入 ${money(info.workIncome)}｜成本 ${money(info.workCost)}｜淨賺 <b>${money(info.net)}</b></p>` : ''}
     <button class="primary wide" data-c-new="${date}">＋ 新增行程</button>`);
@@ -153,7 +162,7 @@ export function openDay(date) {
 export function openEvent(id) {
   const e = db.get('events', id); if (!e) return;
   const code = L.codes(), lb = L.labelOf(L.eventLabel(e));
-  const range = e.endDate && e.endDate > e.date ? `${fmtDay(e.date)}${e.time ? ' ' + e.time : ''}<br>～ ${fmtDay(e.endDate)}${e.endTime ? ' ' + e.endTime : ''}` : `${fmtDay(e.date)}<br>${timeText(e)}`;
+  const range = e.endDate && e.endDate > e.date ? `${fmtDay(e.date)}${e.time ? ' ' + fmtTime(e.time) : ''}<br>～ ${fmtDay(e.endDate)}${e.endTime ? ' ' + fmtTime(e.endTime) : ''}` : `${fmtDay(e.date)}<br>${timeText(e)}`;
   C.openModal(`<div class="sheet-head"><button data-day="${e.date}">‹ 當天</button><button data-close>✕</button></div>
     <div class="ev-label" style="background:${lb.color}"></div>
     <h3 class="ev-title">${esc(evTitle(e))}</h3>
@@ -179,14 +188,18 @@ export function openForm(id, date, copyFrom) {
   const src = id ? db.get('events', id) : copyFrom ? { ...db.get('events', copyFrom), done: false, amount: 0 } : null;
   const e = src || { title: '', date: date || C.state.selDay || today(), allDay: false, time: '', endTime: '', label: L.autoLabels().note, repeat: '', note: '' };
   const curLabel = +L.eventLabel(e);
-  const end = e.endDate || e.date;
   const allDay = e.allDay || !e.time;
+  const startT = e.time || defaultStart(e.date);
+  // 結束：有設定就用設定的，沒設定就是開始往後一小時
+  const endO = e.time && e.endTime ? { date: e.endDate || e.date, time: e.endTime } : plusHour(e.date, startT);
+  let endTouched = !!(e.time && e.endTime);
   C.openModal(`<form id="evform" data-id="${id || ''}">
     <div class="sheet-head"><button type="button" data-close>取消</button><b>${id ? '編輯行程' : '建立新行程'}</b><button type="submit" class="primary">保存</button></div>
-    <input name="title" class="f-title" placeholder="行程標題（必填）" value="${esc(e.title)}" autocomplete="off">
+    <textarea name="title" class="f-title" rows="1" enterkeyhint="enter" placeholder="行程標題（必填）" autocomplete="off">${esc(e.title)}</textarea>
     <div class="f-row"><span>全天</span><label class="switch"><input type="checkbox" name="allDay" ${allDay ? 'checked' : ''}><i></i></label></div>
-    <div class="f-row"><span>開始</span><div><input type="date" name="date" value="${e.date}"><input type="time" name="time" value="${e.time || '10:00'}" class="tm"></div></div>
-    <div class="f-row"><span>結束</span><div><input type="date" name="endDate" value="${end}"><input type="time" name="endTime" value="${e.endTime || (e.time ? addHour(e.time) : '11:00')}" class="tm"></div></div>
+    <div class="f-row"><span>開始</span><div><input type="date" name="date" value="${e.date}"><span class="tp tm" data-tp="time" data-v="${startT}"></span></div></div>
+    <div class="f-row"><span>結束</span><div><input type="date" name="endDate" value="${endO.date}"><span class="tp tm" data-tp="endTime" data-v="${endO.time}"></span></div></div>
+    <div class="f-row tm"><span>時制</span><div><button type="button" class="link" data-c-tf>${tfLabel()}</button></div></div>
     <div class="f-row"><span>重複</span><select name="repeat">${Object.entries(REPEAT).map(([v, t]) => `<option value="${v}" ${(e.repeat || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     <div class="f-row col"><span class="row-between">標籤<button type="button" class="link" data-c-labels>✎ 編輯標籤</button></span><div class="labels">${L.labels().map(l => `<label class="lb"><input type="radio" name="label" value="${l.id}" ${curLabel === l.id ? 'checked' : ''}><i style="background:${l.color}"></i>${esc(l.name || '　')}</label>`).join('')}</div></div>
     <div class="f-row col"><span>備註</span><textarea name="note" rows="6" placeholder="備註">${esc(e.note || '')}</textarea></div>
@@ -196,19 +209,42 @@ export function openForm(id, date, copyFrom) {
   </form>`);
   const f = document.querySelector('#evform');
   const sync = () => f.querySelectorAll('.tm').forEach(t => t.classList.toggle('hide', f.allDay.checked));
-  sync(); f.allDay.addEventListener('change', sync);
-  f.date.addEventListener('change', () => { if (f.endDate.value < f.date.value) f.endDate.value = f.date.value; });
+  f.querySelectorAll('.tp').forEach(drawTp);
+  sync();
+  const growTitle = () => { f.title.style.height = 'auto'; f.title.style.height = Math.min(f.title.scrollHeight, 140) + 'px'; };
+  f.title.addEventListener('input', growTitle); growTitle();
+  const dt = (d, t) => `${d}T${t || '00:00'}`;
+  const setEnd = o => { f.endDate.value = o.date; setTp(f.querySelector('[data-tp=endTime]'), o.time); };
+  const fixEnd = () => { // 開始改了：沒特別設定結束就跟著＝開始後一小時；結束比開始早也一律改回開始後一小時
+    if (f.allDay.checked) { if (f.endDate.value < f.date.value) f.endDate.value = f.date.value; return; }
+    if (!endTouched || dt(f.endDate.value, f.endTime.value) < dt(f.date.value, f.time.value)) setEnd(plusHour(f.date.value, f.time.value));
+  };
+  f.addEventListener('change', ev => {
+    const n = ev.target.name;
+    if (n === 'allDay') { sync(); fixEnd(); }
+    else if (n === 'date' || n === 'time') fixEnd();
+    else if (n === 'endDate' || n === 'endTime') {
+      endTouched = true;
+      if (!f.allDay.checked && dt(f.endDate.value, f.endTime.value) < dt(f.date.value, f.time.value)) { endTouched = false; setEnd(plusHour(f.date.value, f.time.value)); C.toast('結束不能比開始早，已改成開始後一小時'); }
+      else if (f.allDay.checked && f.endDate.value < f.date.value) f.endDate.value = f.date.value;
+    }
+  });
   if (!id) setTimeout(() => f.title.focus(), 50);
   f.onsubmit = async ev => {
     ev.preventDefault();
     const d = Object.fromEntries(new FormData(f));
     if (!d.title.trim()) return C.toast('請輸入行程標題');
+    // 結束沒有或比開始早，一律用開始後一小時，不會出現往前的時間
+    let endD = d.endDate || d.date, endT = d.endTime;
+    if (f.allDay.checked) { if (endD < d.date) endD = d.date; }
+    else if (!endT || dt(endD, endT) < dt(d.date, d.time)) { const o = plusHour(d.date, d.time); endD = o.date; endT = o.time; }
     const rec = {
-      title: d.title.trim(), date: d.date, endDate: d.endDate > d.date ? d.endDate : '', allDay: f.allDay.checked,
-      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : d.endTime, repeat: d.repeat, label: +d.label, note: d.note,
+      title: d.title.trim(), date: d.date, endDate: endD > d.date ? endD : '', allDay: f.allDay.checked,
+      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : endT, repeat: d.repeat, label: +d.label, note: d.note,
     };
+    const flat = rec.title.replace(/\s*\n\s*/g, ' '); // 標題打了好幾行：判斷工作代號、金額時當成一行
     // 標題是代號寫法就當成工作（例如 03.西區北區0.3 nam 賴）
-    const p = parseLine(rec.title, { now: new Date(rec.date + 'T00:00:00'), categories: L.categories() });
+    const p = parseLine(flat, { now: new Date(rec.date + 'T00:00:00'), categories: L.categories() });
     if (p?.event?.type === 'job') {
       const j = p.event;
       Object.assign(rec, { type: 'job', codeRaw: j.codeRaw, truck: j.truck, services: j.services, route: j.route, from: j.from, to: j.to, fromFloor: j.fromFloor, toFloor: j.toFloor, client: j.client, contact: j.contact });
@@ -222,7 +258,7 @@ export function openForm(id, date, copyFrom) {
       for (const x of linked) await db.remove('transactions', x.id);
       for (const t of money) {
         const { matchJob, ...tx } = t;
-        const row = { ...tx, date: rec.date, time: rec.time || '', eventId: evId, source: '手動', raw: rec.title, account: tx.account || '現金' };
+        const row = { ...tx, date: rec.date, time: rec.time || '', eventId: evId, source: '手動', raw: flat, account: tx.account || '現金' };
         row.biz = L.bizFor(row, rec.date);
         await db.add('transactions', row);
       }
@@ -230,7 +266,26 @@ export function openForm(id, date, copyFrom) {
     C.toast(money ? '已保存，統計已更新' : '已保存'); C.state.selDay = rec.date; C.closeModal(); C.render();
   };
 }
-const addHour = t => { const [h, m] = t.split(':').map(Number); return `${String(Math.min(h + 1, 23)).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
+
+// 時間選單：照 12／24 小時制畫（手機內建的時間欄位跟著手機設定，改不了，所以自己畫）。隱藏欄位存 24 小時制 HH:mm
+function drawTp(el) {
+  const name = el.dataset.tp, v = (el.querySelector('input')?.value || el.dataset.v || '10:00'), [h, m] = v.split(':').map(Number);
+  const mins = [...new Set([...Array(12)].map((_, i) => i * 5).concat(m))].sort((a, b) => a - b);
+  const sel = (cls, opts, cur) => `<select class="${cls}">${opts.map(([val, t]) => `<option value="${val}" ${+val === +cur ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const hours = is12() ? sel('tp-ap', [[0, '上午'], [1, '下午']], h >= 12 ? 1 : 0) + sel('tp-h', [...Array(12)].map((_, i) => [i + 1, i + 1]), h % 12 || 12)
+    : sel('tp-h', [...Array(24)].map((_, i) => [i, pad(i)]), h);
+  el.innerHTML = `<input type="hidden" name="${name}" value="${pad(h)}:${pad(m)}">${hours}${sel('tp-m', mins.map(x => [x, pad(x)]), m)}`;
+  el.onchange = ev => {
+    if (ev.target.type === 'hidden') return; // 自己送出的 change，讓它往上傳給表單就好
+    ev.stopPropagation();
+    let hh = +el.querySelector('.tp-h').value;
+    if (is12()) hh = (hh % 12) + (+el.querySelector('.tp-ap').value ? 12 : 0);
+    const hid = el.querySelector('input');
+    hid.value = `${pad(hh)}:${pad(+el.querySelector('.tp-m').value)}`;
+    hid.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+}
+const setTp = (el, t) => { el.dataset.v = t; el.querySelector('input').value = t; drawTp(el); };
 
 // ================= 編輯標籤（名稱、顏色、自動配色）=================
 export function openLabelEditor(back) {
@@ -272,10 +327,17 @@ function openSearch() {
 
 // ================= 點擊 =================
 document.addEventListener('click', async ev => {
-  const t = ev.target.closest('[data-c-ev],[data-c-tx],[data-c-new],[data-c-edit],[data-c-dup],[data-c-copy],[data-c-del],[data-c-done],[data-c-mode],[data-c-today],[data-c-search],[data-c-week],[data-c-prev],[data-c-next],[data-c-labels]');
+  const t = ev.target.closest('[data-c-ev],[data-c-tx],[data-c-new],[data-c-edit],[data-c-dup],[data-c-copy],[data-c-del],[data-c-done],[data-c-mode],[data-c-today],[data-c-search],[data-c-week],[data-c-prev],[data-c-next],[data-c-labels],[data-c-tf],[data-c-mv]');
   if (!t) return;
   ev.stopPropagation();
   const d = t.dataset, st = C.state;
+  if (d.cTf !== undefined) {
+    await db.saveSettings({ timeFormat: is12() ? '24' : '12' });
+    document.querySelectorAll('[data-c-tf]').forEach(b => { b.textContent = tfLabel(); });
+    document.querySelectorAll('.tp').forEach(drawTp);
+    C.render(); return;
+  }
+  if (d.cMv) return applyDrop(d.cMv);
   if (d.cLabels !== undefined) {
     // 從新增／編輯表單進來：存完標籤回到表單，已經填的內容保留
     const f = document.querySelector('#evform');
@@ -285,6 +347,7 @@ document.addEventListener('click', async ev => {
       openForm(editId || null, draft.date);
       const g = document.querySelector('#evform');
       for (const [k, v] of Object.entries(draft)) if (g[k] && g[k].type !== 'radio' && k !== 'label') g[k].value = v;
+      g.querySelectorAll('.tp').forEach(drawTp); // 時間選單照剛填的值重畫
       g.allDay.checked = allDay; g.allDay.dispatchEvent(new Event('change'));
       g.querySelector(`[name=label][value="${draft.label}"]`)?.click();
     });
@@ -321,7 +384,7 @@ window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() =
 let touch = null;
 document.addEventListener('touchstart', e => { touch = e.target.closest('#calgrid') ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
 document.addEventListener('touchend', e => {
-  if (!touch) return;
+  if (!touch || Date.now() < suppressUntil) { touch = null; return; }
   const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y; touch = null;
   if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return;
   const st = C.state;
@@ -329,3 +392,83 @@ document.addEventListener('touchend', e => {
   else st.calYm = ymAdd(st.calYm, dx < 0 ? 1 : -1);
   C.render();
 });
+
+// ================= 拖移行程：長按 → 拖到別天 → 選「移動」或「複製」 =================
+// 月曆（行程條帶）和週曆（行程列）都能拖。滑動換月、上下捲動不受影響：要按住不動約 0.4 秒才開始拖。
+let drag = null, press = null, pending = null, suppressUntil = 0, lastTouch = 0;
+const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5);
+const inRect = (el, x, y) => { const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
+const dayAt = (x, y) => document.elementFromPoint(x, y)?.closest('#calgrid [data-day]')?.dataset.day || '';
+const evIdOf = el => el.dataset.evid || el.dataset.cEv;
+
+function pressStart(x, y, mouse) {
+  if (!C || C.state.tab !== 'cal' || document.querySelector('#modal.open')) return;
+  const el = [...document.querySelectorAll('#calgrid .seg[data-evid], #calgrid .wi[data-c-ev]')].find(n => inRect(n, x, y));
+  if (!el) return;
+  press = { el, x, y, timer: setTimeout(() => dragBegin(x, y), mouse ? 250 : 400) };
+}
+function dragBegin(x, y) {
+  const rec = press && db.get('events', evIdOf(press.el)); if (!rec) { press = null; return; }
+  const day = dayAt(x, y) || rec.date;
+  const ghost = document.createElement('div');
+  ghost.className = 'drag-ghost'; ghost.textContent = evTitle(rec);
+  document.body.appendChild(ghost);
+  drag = { id: rec.id, grab: day, target: day, ghost, el: press.el };
+  press.el.style.opacity = '.35'; press = null; suppressUntil = Infinity;
+  navigator.vibrate?.(15); dragMove(x, y);
+}
+function dragMove(x, y) {
+  drag.ghost.style.left = x + 'px'; drag.ghost.style.top = y + 'px';
+  const d = dayAt(x, y);
+  document.querySelectorAll('.dropt').forEach(n => n.classList.remove('dropt'));
+  if (d) document.querySelectorAll(`#calgrid [data-day="${d}"]`).forEach(n => n.classList.add('dropt'));
+  drag.target = d || drag.grab;
+}
+function dragEnd(cancel) {
+  clearTimeout(press?.timer); press = null;
+  if (!drag) return;
+  const { id, grab, target, ghost, el } = drag; drag = null;
+  ghost.remove(); el.style.opacity = '';
+  document.querySelectorAll('.dropt').forEach(n => n.classList.remove('dropt'));
+  suppressUntil = Date.now() + 350;
+  if (cancel || target === grab) return;
+  const rec = db.get('events', id); if (!rec) return;
+  pending = { id, delta: daysBetween(grab, target) };
+  C.openModal(`<div class="sheet-head"><h3>${fmtDay(target)}</h3><button data-close>✕</button></div>
+    <p class="ev-title">${esc(evTitle(rec))}</p><p class="muted">要把這個行程移過來，還是複製一份？</p>
+    <div class="row"><button class="primary" data-c-mv="move">移動</button><button data-c-mv="copy">複製</button><button data-close>取消</button></div>`);
+}
+async function applyDrop(mode) {
+  const p = pending; pending = null;
+  const rec = p && db.get('events', p.id); if (!rec) return C.closeModal();
+  const date = addDays(rec.date, p.delta), endDate = rec.endDate ? addDays(rec.endDate, p.delta) : '';
+  if (mode === 'move') {
+    await db.update('events', rec.id, { date, endDate });
+    for (const x of db.all('transactions').filter(x => x.eventId === rec.id)) await db.update('transactions', x.id, { date: addDays(x.date, p.delta) });
+    C.toast('已移動');
+  } else {
+    // 複製：不帶收入（標題前面的 $金額 拿掉、算未完成），也不帶重複
+    const { id: _id, ...rest } = rec;
+    await db.add('events', { ...rest, date, endDate, done: false, amount: 0, repeat: '', source: '手動', title: (rec.title || '').replace(/^\s*-?\$\d+\s*/, '') });
+    C.toast('已複製');
+  }
+  C.state.selDay = date; C.closeModal(); C.render();
+}
+const xy = e => (e.touches?.[0] || e.changedTouches?.[0] || e);
+document.addEventListener('touchstart', e => { lastTouch = Date.now(); if (e.touches.length === 1) pressStart(e.touches[0].clientX, e.touches[0].clientY, false); }, { passive: true });
+document.addEventListener('touchmove', e => {
+  const t = xy(e);
+  if (drag) { e.preventDefault(); dragMove(t.clientX, t.clientY); }
+  else if (press && Math.hypot(t.clientX - press.x, t.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; }
+}, { passive: false });
+document.addEventListener('touchend', () => dragEnd(false));
+document.addEventListener('touchcancel', () => dragEnd(true));
+document.addEventListener('mousedown', e => { if (e.button === 0 && Date.now() - lastTouch > 800) pressStart(e.clientX, e.clientY, true); });
+document.addEventListener('mousemove', e => {
+  if (drag) dragMove(e.clientX, e.clientY);
+  else if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) { clearTimeout(press.timer); press = null; }
+});
+document.addEventListener('mouseup', () => { if (Date.now() - lastTouch > 800) dragEnd(false); else clearTimeout(press?.timer); });
+// 拖完放開時瀏覽器會再送一個 click，吃掉它，免得打開當天清單
+window.addEventListener('click', e => { if (Date.now() < suppressUntil) { e.stopPropagation(); e.preventDefault(); } }, true);
+document.addEventListener('contextmenu', e => { if (e.target.closest('#calgrid') && (press || drag)) e.preventDefault(); });

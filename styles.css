@@ -400,3 +400,14 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .cms-pick { display: inline-block; border: 1px dashed var(--navy); color: var(--navy); border-radius: 10px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
 .cms-pick input { display: none; }
 .cms-save { position: sticky; bottom: 0; background: #fff; padding: 10px 0; }
+
+/* 行事曆：時間選單、標題多行、拖移 */
+.f-title { resize: none; overflow: hidden; line-height: 1.35; font-family: inherit; display: block; width: 100%; box-sizing: border-box; }
+.f-row > div { flex-wrap: wrap; }
+.tp { display: inline-flex; gap: 3px; align-items: center; }
+.tp select { width: auto; padding: 6px 4px; font-size: 15px; }
+.f-row .link { border: none; background: none; color: var(--navy); text-decoration: underline; padding: 4px 0; font-size: 14px; }
+#calgrid { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.drag-ghost { position: fixed; z-index: 30; pointer-events: none; transform: translate(-50%, -140%); max-width: 70vw; padding: 6px 12px; border-radius: 8px; background: #2ecc87; color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 4px 14px #0004; }
+.tc.dropt { background: #cfeee0 !important; outline: 2px solid #2ecc87; outline-offset: -2px; }
+.wrow.dropt { background: #cfeee0 !important; }
