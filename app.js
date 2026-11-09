@@ -405,14 +405,13 @@ function settingsView() {
     <button class="primary" data-c-labels>編輯標籤</button></section>
   <section><h4>分類與關鍵字</h4><p class="muted">設定每個分類算公帳還是私帳（一鍵把以前的全部改過來），以及打字時用哪些字自動分類。目前 ${cats.length} 個分類。</p>
     <button class="primary" data-act="cat-editor">編輯分類</button></section>
-  <section><h4>客源名稱</h4><p class="muted">改名稱：以前選過的行程會一起改。清空名稱＝從選單拿掉（舊行程還是留著原名稱）。</p>
-    ${L.leads().map(x => `<input class="lead-edit" data-lead-orig="${esc(x)}" value="${esc(x)}">`).join('')}
-    <input class="lead-edit" data-lead-orig="" placeholder="＋ 新增一個客源名稱">
-    <button class="primary" data-act="save-leads">儲存客源名稱</button></section>
+  <section><h4>客源項目</h4><p class="muted">客人怎麼找到你。可以新增（例：整理師配合）、刪除（例：回頭客）、直接改名。改名會連以前的行程一起改。</p>
+    <div id="lead-box"></div></section>
   <section><h4>代號對照表</h4><p class="muted">一行一個：數字=意思（0 固定代表 3.5 噸車）</p>
     <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
   <div class="row"><button data-close>關閉</button></div>`);
 
+  renderLeadBox();
   G.preload().catch(() => {}); // 先載好 Google 授權元件，手機按下去才不會被擋
   $('#tt-file').onchange = async e => importTimeTree(e.target.files[0]);
   $('#bill-file').onchange = async e => importBillFile(e.target.files[0], $('#bill-bank').value);
@@ -426,19 +425,50 @@ async function saveSettingsForm(act) {
   } else if (act === 'save-sc') {
     for (const s of db.all('shortcuts')) await db.remove('shortcuts', s.id);
     await db.addMany('shortcuts', $('#sc-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([label, input], i) => ({ label: label.trim(), input: input.trim(), order: i })));
-  } else if (act === 'save-leads') {
-    const rows = [...document.querySelectorAll('.lead-edit')].map(i => ({ o: i.dataset.leadOrig, n: i.value.trim() }));
-    const next = [...new Set(rows.filter(r => r.n).map(r => r.n))];
-    for (const r of rows) if (r.o && r.n && r.o !== r.n) { // 改名：舊行程一起改
-      await db.ensureWhere('events', 'lead', r.o);
-      for (const e of db.all('events').filter(e => e.lead === r.o)) await db.update('events', e.id, { lead: r.n });
-    }
-    await db.saveSettings({ leads: next.length ? next : L.DEFAULT_LEADS });
   } else if (act === 'save-code') {
     const codes = Object.fromEntries($('#code-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([k, v]) => [k.trim(), v.trim()]));
     await db.saveSettings({ codes: Object.keys(codes).length ? codes : DEFAULT_CODES });
   }
   toast('已儲存');
+}
+
+// ================= 客源項目（新增／刪除／改名）=================
+let leadDel = ''; // 按了垃圾桶、等確認的那個客源
+function renderLeadBox() {
+  const box = $('#lead-box'); if (!box) return;
+  const ls = L.leads();
+  box.innerHTML = ls.map(x => `<div class="lead-row"><input class="lead-edit" data-lead-orig="${esc(x)}" value="${esc(x)}">
+      ${leadDel === x ? '<button class="danger sm" data-lead-del>確定刪除</button><button class="sm" data-lead-keep>不要</button>' : `<button class="icon-btn" data-lead-arm="${esc(x)}" title="刪除">🗑</button>`}</div>
+    ${leadDel === x ? `<p class="warn sm-note">以前標「${esc(x)}」的 ${db.all('events').filter(e => e.lead === x).length} 件行程會變成「未填」，之後可以再補選別的。</p>` : ''}`).join('')
+    + `<div class="add-row"><input id="lead-new" placeholder="＋ 新增客源，例如：整理師配合"><button class="primary" data-lead-add>＋ 新增</button></div>`;
+  if (!box.dataset.bound) {
+    box.dataset.bound = 1;
+    box.addEventListener('click', async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const cur = L.leads();
+      if (b.dataset.leadArm !== undefined) { leadDel = b.dataset.leadArm; await db.ensureWhere('events', 'lead', leadDel); renderLeadBox(); }
+      else if (b.dataset.leadKeep !== undefined) { leadDel = ''; renderLeadBox(); }
+      else if (b.dataset.leadDel !== undefined) {
+        const x = leadDel; leadDel = '';
+        await db.ensureWhere('events', 'lead', x);
+        for (const ev of db.all('events').filter(ev => ev.lead === x)) await db.update('events', ev.id, { lead: '' });
+        await db.saveSettings({ leads: cur.filter(y => y !== x) }); toast(`已刪除「${x}」`); renderLeadBox();
+      } else if (b.dataset.leadAdd !== undefined) {
+        const n = $('#lead-new').value.trim();
+        if (!n) return toast('先打名稱');
+        if (cur.includes(n)) return toast('已經有這個了');
+        await db.saveSettings({ leads: [...cur, n] }); toast(`已新增「${n}」`); renderLeadBox();
+      }
+    });
+    box.addEventListener('change', async e => {
+      const i = e.target.closest('.lead-edit'); if (!i) return;
+      const o = i.dataset.leadOrig, n = i.value.trim(), cur = L.leads();
+      if (!n || n === o || cur.includes(n)) { if (!n) toast('名稱不能空白，要拿掉請按垃圾桶'); renderLeadBox(); return; }
+      await db.ensureWhere('events', 'lead', o);
+      for (const ev of db.all('events').filter(ev => ev.lead === o)) await db.update('events', ev.id, { lead: n });
+      await db.saveSettings({ leads: cur.map(y => y === o ? n : y) }); toast(`已改成「${n}」`); renderLeadBox();
+    });
+  }
 }
 
 // ================= 分類設定 =================
