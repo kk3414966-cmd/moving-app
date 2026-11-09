@@ -104,12 +104,16 @@ async function loadCats() {
     if (!j.ok) throw new Error(j.error || 'feed');
     let map = {};
     try { map = JSON.parse((d.fields && d.fields.json && d.fields.json.stringValue) || '{}'); } catch (e) { map = {}; }
-    const rows = (j.videos.map(x => ['影片', x]).concat(j.cases.map(x => ['貼文', x])));
-    box.innerHTML = rows.map(([kind, x]) => {
-      const title = esc(String(x.text).split('\n')[0].replace(/#(搬家|清運|清潔|倉儲|企業)\s*/g, '').slice(0, 26));
+    const RULES = [['清運', /清運|垃圾|回收|廢棄|二手/], ['清潔', /清潔/], ['倉儲', /倉庫|倉儲|存放|儲存/], ['企業', /企業|公司行號|合作廠商|辦公室/]];
+    const guess = t => { const m = String(t).match(/#(搬家|清運|清潔|倉儲|企業)/); if (m) return m[1]; for (const [n, re] of RULES) if (re.test(t)) return n; return '搬家'; };
+    const row = x => {
+      const lines = String(x.text).replace(/#(搬家|清運|清潔|倉儲|企業)\s*/g, '').trim().split('\n').filter(Boolean);
       const cur = map[x.id] || '';
-      return `<div class="cms-catrow"><span>${kind}｜${title}</span><select data-cat-id="${esc(x.id)}"><option value="">自動</option>${CAT_NAMES.map(n => `<option ${n === cur ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
-    }).join('') || '粉專目前沒有貼文。';
+      return `<div class="cms-catrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(feedUrl + '/img/' + x.id)}" alt="" loading="lazy"></a>
+        <div class="cms-cattxt"><b>${esc((lines[0] || '').slice(0, 30))}</b><small>${esc((lines[1] || '').slice(0, 40))}</small><small>${esc(String(x.t).slice(0, 10))}</small></div>
+        <select data-cat-id="${esc(x.id)}"><option value="">自動（${guess(x.text)}）</option>${CAT_NAMES.map(n => `<option ${n === cur ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
+    };
+    box.innerHTML = '<div class="cms-catlist"><h5>短影片</h5>' + j.videos.map(row).join('') + '<h5>貼文（案例）</h5>' + j.cases.map(row).join('') + '</div>';
     box.onchange = async e => {
       const el = e.target; if (!el.dataset.catId) return;
       if (el.value) map[el.dataset.catId] = el.value; else delete map[el.dataset.catId];
