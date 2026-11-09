@@ -432,3 +432,6 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .set-grp > section { padding: 4px 16px 12px; }
 .set-grp > section { border: 0; box-shadow: none; background: transparent; border-radius: 0; margin: 0; border-top: 1px solid var(--line); }
 .set-grp > section:first-of-type { border-top: 0; }
+.cms-catrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--ink, #222); }
+.cms-catrow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cms-catrow select { flex: none; padding: 6px 8px; }

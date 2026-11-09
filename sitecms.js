@@ -14,6 +14,7 @@ const SECTIONS = {
     fields: [['title', '名稱', '三人座布沙發'], ['price', '價格', '2500', 'number'], ['text', '說明', '九成新，台中可自取。']], sold: true },
 };
 
+const feedUrl = 'https://moving-fbfeed.kk3414966.workers.dev';
 let C = null;      // 目前編輯中的內容
 let api = null;    // { openModal, closeModal, toast, modalHead }
 
@@ -44,9 +45,12 @@ function render() {
     <section class="cms-sec"><h4>封面照</h4><p class="muted">首頁最上面那張大照片。建議用橫的照片。</p>
       <div class="cms-hero">${C.hero ? `<img src="${esc(imgUrl(C.hero))}" alt="">` : '<span class="muted">目前用預設的照片</span>'}</div>
       <label class="cms-pick">選照片<input type="file" accept="image/*" data-cms-img="hero"></label></section>
+    <section class="cms-sec"><h4>搬家實錄・貼文分類</h4><p class="muted">官網會自動猜每則粉專貼文的分類。猜錯的在這裡改，選「自動」就回到官網自己判斷。</p>
+      <div id="cms-cats" class="muted">讀取粉專貼文中…</div></section>
     ${Object.keys(SECTIONS).map(sec).join('')}
     <div class="row cms-save"><button class="primary" data-cms-save>儲存到官網</button><button data-close>關閉</button></div>`);
   bind();
+  loadCats();
 }
 
 function item(key, it, i) {
@@ -87,6 +91,34 @@ function bind() {
     }
     if (t.hasAttribute('data-cms-save')) save(t);
   };
+}
+
+// 貼文分類：列出粉專最近的影片與貼文，每則可指定分類。存在 Firestore 公開文件 public/feedcats（選了就立刻生效，官網約 15 分鐘內更新）
+const CAT_NAMES = ['搬家', '清運', '清潔', '倉儲', '企業'];
+const catsDocUrl = 'https://firestore.googleapis.com/v1/projects/moving-app-ac208/databases/(default)/documents/public/feedcats';
+async function loadCats() {
+  const box = document.querySelector('#cms-cats'); if (!box) return;
+  try {
+    const [r, d] = await Promise.all([fetch(feedUrl + '/feed'), fetch(catsDocUrl, { cache: 'no-store' }).then(x => x.ok ? x.json() : {}).catch(() => ({}))]);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'feed');
+    let map = {};
+    try { map = JSON.parse((d.fields && d.fields.json && d.fields.json.stringValue) || '{}'); } catch (e) { map = {}; }
+    const rows = (j.videos.map(x => ['影片', x]).concat(j.cases.map(x => ['貼文', x])));
+    box.innerHTML = rows.map(([kind, x]) => {
+      const title = esc(String(x.text).split('\n')[0].replace(/#(搬家|清運|清潔|倉儲|企業)\s*/g, '').slice(0, 26));
+      const cur = map[x.id] || '';
+      return `<div class="cms-catrow"><span>${kind}｜${title}</span><select data-cat-id="${esc(x.id)}"><option value="">自動</option>${CAT_NAMES.map(n => `<option ${n === cur ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
+    }).join('') || '粉專目前沒有貼文。';
+    box.onchange = async e => {
+      const el = e.target; if (!el.dataset.catId) return;
+      if (el.value) map[el.dataset.catId] = el.value; else delete map[el.dataset.catId];
+      try {
+        const ok = await db.setPublic('feedcats', { json: JSON.stringify(map), updatedAt: new Date().toISOString() });
+        api.toast(ok ? '分類已存好' : '要先登入雲端才能存分類');
+      } catch (err) { api.toast('分類存失敗：' + err.message); }
+    };
+  } catch (e) { box.textContent = '讀不到粉專貼文（' + e.message + '），稍後再試。'; }
 }
 
 // 選照片 → 在手機上先壓小 → 上傳
@@ -137,7 +169,7 @@ async function post(path, payload) {
 
 async function save(btn) {
   // 沒填東西的空白項目不存
-  const clean = { hero: C.hero || '' };
+  const clean = { hero: C.hero || '', videos: C.videos || [], cases: C.cases || [] };
   for (const k of Object.keys(SECTIONS)) clean[k] = C[k].filter(it => Object.entries(it).some(([f, v]) => f !== 'sold' && v));
   btn.disabled = true; btn.textContent = '儲存中…';
   try {
