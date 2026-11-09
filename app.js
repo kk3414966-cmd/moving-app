@@ -6,6 +6,7 @@ import * as F from './files.js';
 import * as G from './gmail.js';
 import * as CAL from './calendar.js';
 import * as AV from './availability.js';
+import { mountQuotes } from './quotes.js';
 import { openSiteCms } from './sitecms.js';
 const { evTitle, txLabel } = CAL;
 
@@ -689,9 +690,22 @@ function recentTx() {
 const txInput = t => `${t.type === 'income' ? '+' : '-'}${t.amount}${t.note || t.category}${BANKS.includes(t.account) ? ' ' + t.account : ''}`;
 
 // ================= 主框架 =================
+let quoteRoot = null, quoteApi = null;
 function render() {
   const view = $('#view');
-  view.innerHTML = state.tab === 'chat' ? chatView() : state.tab === 'cal' ? CAL.calView() : statsView();
+  if (state.tab === 'quote') {
+    // 報價單分頁有自己的畫面狀態（草稿、輸入中的內容），換分頁或資料同步時不要重畫
+    if (!quoteRoot) {
+      quoteRoot = document.createElement('div'); quoteRoot.id = 'qroot';
+      quoteApi = mountQuotes(quoteRoot, {
+        settings: db.settings, saveSettings: db.saveSettings,
+        quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate,
+      });
+    } else quoteApi.refresh();
+    if (view.firstChild !== quoteRoot) { view.innerHTML = ''; view.appendChild(quoteRoot); }
+  } else {
+    view.innerHTML = state.tab === 'chat' ? chatView() : state.tab === 'cal' ? CAL.calView() : statsView();
+  }
   document.querySelectorAll('nav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
   $('#composer').classList.toggle('hide', state.tab !== 'chat');
   $('#shortcuts').innerHTML = recentTx().map(t => `<button data-sc="${t.id}">${esc(txLabel(t))}</button>`).join('');
@@ -703,12 +717,12 @@ function render() {
 
 // 左滑／右滑切換分頁：對話框 ⇄ 行事曆 ⇄ 統計
 // 不搶別人的手勢：月曆格子（本來就是左右滑換月）、彈出視窗、輸入框、可橫向捲動的區塊（常用記帳按鈕）、長按拖移中都不切
-const TAB_ORDER = ['chat', 'cal', 'stats'];
+const TAB_ORDER = ['chat', 'cal', 'stats', 'quote'];
 let swipe0 = null;
 document.addEventListener('touchstart', e => {
   const el = e.target;
   const skip = e.touches.length !== 1 || $('#modal').classList.contains('open') ||
-    el.closest('#calgrid, textarea, input, select, #shortcuts, .tip, .bars');
+    el.closest('#calgrid, textarea, input, select, canvas, #qroot, #shortcuts, .tip, .bars');
   swipe0 = skip ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
 }, { passive: true });
 document.addEventListener('touchend', e => {

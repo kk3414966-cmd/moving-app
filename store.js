@@ -43,7 +43,7 @@ const inLive = (c, r) => !r || !BIG.includes(c) || (r.date || '') >= liveFrom ||
 
 export async function init() {
   // 網址加 ?local 可用本機試用模式（測試用）
-  if (!firebaseConfig || new URLSearchParams(location.search).has('local')) { loadLocal(); mode = 'local'; syncedResolve(true); notify(); return { mode }; }
+  if (!firebaseConfig || new URLSearchParams(location.search).has('local')) { loadLocal(); loadQuotesLocal(); mode = 'local'; syncedResolve(true); notify(); return { mode }; }
   const app = await import(`${FB}/firebase-app.js`);
   authMod = await import(`${FB}/firebase-auth.js`);
   fs = await import(`${FB}/firebase-firestore.js`);
@@ -55,6 +55,13 @@ export async function init() {
     authMod.onAuthStateChanged(auth, user => {
       if (!user) { uid = null; resolve({ mode, needLogin: true }); return; }
       uid = user.uid;
+      // 報價單：頂層集合 quotes/{代碼}（客人用代碼開連結），只監聽自己的
+      try {
+        fs.onSnapshot(fs.query(fs.collection(db, 'quotes'), fs.where('ownerUid', '==', uid)), snap => {
+          snap.docChanges().forEach(ch => { if (ch.type !== 'removed') quoteCache.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() }); else quoteCache.delete(ch.doc.id); });
+          notify();
+        }, err => console.warn('報價單同步失敗（Firebase 規則還沒設定？）', err));
+      } catch (e) { console.warn('報價單同步失敗', e); }
       const col = c => fs.collection(db, 'users', uid, c);
       const queries = [
         ...COLLECTIONS.filter(c => !BIG.includes(c)).map(c => [c, col(c)]),
@@ -174,6 +181,25 @@ export async function setPublic(id, data) {
   if (mode !== 'cloud' || !uid) return false;
   await fs.setDoc(fs.doc(db, 'public', id), data);
   return true;
+}
+
+// ---- 報價單 ----
+const quoteCache = new Map();
+const LSQ = 'moving-app-quotes-v1';
+function loadQuotesLocal() { try { for (const r of JSON.parse(localStorage.getItem(LSQ) || '[]')) quoteCache.set(r.id, r); } catch { /* 第一次使用 */ } }
+function saveQuotesLocal() { try { localStorage.setItem(LSQ, JSON.stringify([...quoteCache.values()])); } catch { /* 空間不足 */ } }
+export const quotesAll = () => [...quoteCache.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+export async function quoteSave(q) {
+  const rec = { ...q, ownerUid: uid || 'local', createdAt: q.createdAt || new Date().toISOString() };
+  quoteCache.set(rec.id, rec); notify();
+  if (mode === 'local') saveQuotesLocal(); else await fs.setDoc(fs.doc(db, 'quotes', rec.id), stripId(rec));
+  return rec;
+}
+export async function quoteUpdate(id, patch) {
+  const rec = { ...quoteCache.get(id), ...patch, id };
+  quoteCache.set(id, rec); notify();
+  if (mode === 'local') saveQuotesLocal(); else await fs.setDoc(fs.doc(db, 'quotes', id), stripId(rec));
+  return rec;
 }
 
 // settings 只有一筆

@@ -1,0 +1,17 @@
+// 報價單的 Firebase 規則：只「新增」這一段，貼在既有規則的
+// match /databases/{database}/documents { ... } 裡面，不要蓋掉原本的規則。
+match /quotes/{token} {
+  // 客人用不可猜的長代碼開連結（只能一筆一筆讀，不能列出全部）
+  allow get: if true;
+  // 只有你自己看得到自己的報價單清單
+  allow list: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+  allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+  allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+  allow update: if
+    // 你自己：可以改（作廢等）
+    (request.auth != null && resource.data.ownerUid == request.auth.uid && request.resource.data.ownerUid == resource.data.ownerUid)
+    // 客人：只能把「未確認」改成「已確認」，而且只能動這四個欄位，不能改金額
+    || (resource.data.status == '未確認'
+        && request.resource.data.status == '已確認'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'custNote', 'sig', 'confirmedAt']));
+}
