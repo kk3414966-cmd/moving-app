@@ -717,7 +717,7 @@ async function quoteToCalendar() {
       const endT = dt.time ? (() => { const [h, mi] = dt.time.split(':').map(Number); return String((h + 1) % 24).padStart(2, '0') + ':' + String(mi).padStart(2, '0'); })() : '';
       const rec = { type: 'event', title, date: dt.date, endDate: '', allDay: !dt.time, time: dt.time, endTime: endT, repeat: '', label: 0, note, lead: '', done: false, amount: 0, source: '報價單', quoteId: q.id };
       // 標題是代號寫法就當成工作（跟行事曆手動輸入一樣；「(待確)」不影響判斷）
-      const pj = parseLine(title.replace(/^\(待確\)\s*/, ''), { now: new Date(dt.date + 'T00:00:00'), categories: L.categories() });
+      const pj = parseLine(title.replace(/^\(待確\)\s*/, '').replace(/^((?:\d+×)?\d+)[^\d.\s]+\./, '$1.'), { now: new Date(dt.date + 'T00:00:00'), categories: L.categories() });
       if (pj?.event?.type === 'job') { const j = pj.event; Object.assign(rec, { type: 'job', codeRaw: j.codeRaw, truck: j.truck, services: j.services, route: j.route, from: j.from, to: j.to, fromFloor: j.fromFloor, toFloor: j.toFloor, client: j.client, contact: j.contact }); }
       await db.add('events', rec);
       await db.quoteUpdate(q.id, { calDone: true });

@@ -75,15 +75,15 @@ function buildTitle(d){
   if(!d.on[x.id]) return;
   if(x.id==='move'){ dg['3']=1; mv=d.v[x.id]; if(!mv.half) dg['0']=1; }
   else if(x.id==='pack') dg['8']=1; else if(x.id==='place') dg['9']=1; else if(x.id==='junk') dg['7']=1;
-  else texts.push(x.name);
+  else texts.push({furn:'拆',clean:'清',store:'倉'}[x.id]||String(x.name||'').charAt(0)); // 沒代號的項目：拆／清／倉（自訂項目取第一個字），寫在代號後面、點之前
  });
  var ca=countyOf(d.from), cb=countyOf(d.to); if(ca&&cb&&ca!==cb) dg['6']=1;
  var a1=areaOf(d.from)||ca.replace(/[縣市]$/,''), a2=areaOf(d.to)||cb.replace(/[縣市]$/,'');
  var ff=d.fromElev==='有'?'0':String(d.fromFloor||''), tf=d.toElev==='有'?'0':String(d.toFloor||''); // 有電梯一律寫 0，沒電梯寫樓層
  var code=Object.keys(dg).sort().join('');
  var head='';
- if(code){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
- var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat(texts).concat([d.src||'']).filter(Boolean);
+ var tx=texts.join(''); if(code||tx){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+tx+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
+ var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat([d.src||'']).filter(Boolean);
  return parts.join(' ');
 }
 function qty(l){ var t=String(l.q==null?'':l.q).trim(); return /^\d+$/.test(t)?parseInt(t,10):1; }
