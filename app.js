@@ -176,7 +176,7 @@ function statsView() {
     }
     const mJobs = db.all('events').filter(e => e.type === 'job' && (e.date || '').slice(0, 7) === ym);
     const leadMap = {}; let leadMissing = 0;
-    for (const e of mJobs) { if (!e.lead) { leadMissing++; continue; } const o = leadMap[e.lead] ||= { n: 0, sum: 0 }; o.n++; if (e.done) o.sum += +e.amount || 0; }
+    for (const e of mJobs) { if (!e.lead) { leadMissing++; continue; } const o = leadMap[e.lead] ||= { n: 0, sum: 0, who: [] }; o.n++; o.who.push(e.client || (e.title || '').replace(/^\s*\$?\d*\s*\d{1,2}\.\S+\s*/, '').trim() || '（沒名字）'); if (e.done) o.sum += +e.amount || 0; }
     const leadRows = Object.entries(leadMap).sort((a, b) => b[1].n - a[1].n);
     const svc = Object.entries(s.service).sort((a, b) => b[1].count - a[1].count);
     // 工作收入（搬家、清運…）和家具收入（二手家具賣出）分開算；加起來還是原本的總收入，淨利不變
@@ -204,7 +204,7 @@ function statsView() {
     </section>
     <section><h3>客源 <small class="muted">客人怎麼找到你（點行程→客源）</small></h3>
       <table><tr><th>客源</th><th>件數</th><th>已收金額</th></tr>
-      ${leadRows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.sum ? money(v.sum) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">這個月沒有工作</td></tr>'}</table>
+      ${leadRows.map(([k, v]) => `<tr><td>${esc(k)}<small>${[...new Set(v.who)].map(esc).join('、')}</small></td><td>${v.n}</td><td>${v.sum ? money(v.sum) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">這個月沒有工作</td></tr>'}</table>
       ${leadMissing ? `<p class="muted">還有 ${leadMissing} 件沒填客源</p>` : ''}
     </section>
     <section><h3>服務項目</h3><table><tr><th>服務</th><th>次數</th><th>平均收</th></tr>
