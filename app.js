@@ -181,8 +181,8 @@ function statsView() {
       if (t.type === 'income') d.inc += +t.amount; else d.cost += +t.amount;
     }
     const mJobs = db.all('events').filter(e => e.type === 'job' && (e.date || '').slice(0, 7) === ym);
-    const leadMap = {}; let leadMissing = 0;
-    for (const e of mJobs) { if (!e.lead) { leadMissing++; continue; } const o = leadMap[e.lead] ||= { n: 0, sum: 0, evs: [] }; o.n++; o.evs.push(e); if (e.done) o.sum += +e.amount || 0; }
+    const leadMap = {}; const leadMissingList = [];
+    for (const e of mJobs) { if (!e.lead) { leadMissingList.push(e); continue; } const o = leadMap[e.lead] ||= { n: 0, sum: 0, evs: [] }; o.n++; o.evs.push(e); if (e.done) o.sum += +e.amount || 0; }
     const leadRows = Object.entries(leadMap).sort((a, b) => b[1].n - a[1].n);
     const svc = Object.entries(s.service).sort((a, b) => b[1].count - a[1].count);
     // 工作收入（搬家、清運…）和家具收入（二手家具賣出）分開算；加起來還是原本的總收入，淨利不變
@@ -211,7 +211,7 @@ function statsView() {
     <section><h3>客源 <small class="muted">客人怎麼找到你（點行程→客源）</small></h3>
       <table><tr><th>客源</th><th>件數</th><th>已收金額</th></tr>
       ${leadRows.map(([k, v]) => `<tr class="has-tip"><td>${esc(k)}<span class="hint">ⓘ</span>${leadTip(v.evs)}</td><td>${v.n}</td><td>${v.sum ? money(v.sum) : '—'}</td></tr>`).join('')|| '<tr><td colspan="3" class="muted">這個月沒有工作</td></tr>'}</table>
-      ${leadMissing ? `<p class="muted">還有 ${leadMissing} 件沒填客源</p>` : ''}
+      ${leadMissingList.length ? `<div class="has-tip muted lead-miss">還有 ${leadMissingList.length} 件沒填客源 <span class="hint">ⓘ</span>${leadTip(leadMissingList)}</div>` : ''}
     </section>
     <section><h3>服務項目</h3><table><tr><th>服務</th><th>次數</th><th>平均收</th></tr>
       ${svc.map(([k, v]) => `<tr><td>${esc(k)} ${esc(code[k] || '')}</td><td>${v.count}</td><td>${v.done ? money(v.total / v.done) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">沒有工作</td></tr>'}</table>
@@ -276,8 +276,6 @@ let downOnBackdrop = false; // 從視窗裡按下、拖到外面放開，不算�
 $('#modal').addEventListener('pointerdown', e => { downOnBackdrop = e.target === e.currentTarget; });
 $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget && downOnBackdrop) closeModal(); });
 
-const LEADS = CAL.LEADS;
-
 function editRecord(col, id, draft) {
   const r = draft || db.get(col, id);
   if (!r) return;
@@ -291,7 +289,7 @@ function editRecord(col, id, draft) {
     <fieldset class="jobonly"><legend>工作資料</legend>
       ${f('代號', 'codeRaw', r.codeRaw)}${f('起點', 'from', r.from)}${f('終點', 'to', r.to)}
       ${f('起點樓層', 'fromFloor', r.fromFloor)}${f('終點樓層', 'toFloor', r.toFloor)}${f('客戶', 'client', r.client)}${f('聯絡方式', 'contact', r.contact)}
-      <label>客源（客人怎麼找到你）<select name="lead"><option value="">（未填）</option>${LEADS.map(x => `<option ${x === r.lead ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label>客源（客人怎麼找到你）<select name="lead">${L.leadOptions(r.lead)}</select></label>
       <label class="check"><input type="checkbox" name="done" ${r.done ? 'checked' : ''}> 已完成</label>${f('實收金額', 'amount', r.amount || '', 'number')}
     </fieldset>
     <label>備註（完整內容）<textarea name="note" rows="6">${esc(r.note || '')}</textarea></label>`;
@@ -407,6 +405,10 @@ function settingsView() {
     <button class="primary" data-c-labels>編輯標籤</button></section>
   <section><h4>分類與關鍵字</h4><p class="muted">設定每個分類算公帳還是私帳（一鍵把以前的全部改過來），以及打字時用哪些字自動分類。目前 ${cats.length} 個分類。</p>
     <button class="primary" data-act="cat-editor">編輯分類</button></section>
+  <section><h4>客源名稱</h4><p class="muted">改名稱：以前選過的行程會一起改。清空名稱＝從選單拿掉（舊行程還是留著原名稱）。</p>
+    ${L.leads().map(x => `<input class="lead-edit" data-lead-orig="${esc(x)}" value="${esc(x)}">`).join('')}
+    <input class="lead-edit" data-lead-orig="" placeholder="＋ 新增一個客源名稱">
+    <button class="primary" data-act="save-leads">儲存客源名稱</button></section>
   <section><h4>代號對照表</h4><p class="muted">一行一個：數字=意思（0 固定代表 3.5 噸車）</p>
     <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
   <div class="row"><button data-close>關閉</button></div>`);
@@ -424,6 +426,14 @@ async function saveSettingsForm(act) {
   } else if (act === 'save-sc') {
     for (const s of db.all('shortcuts')) await db.remove('shortcuts', s.id);
     await db.addMany('shortcuts', $('#sc-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([label, input], i) => ({ label: label.trim(), input: input.trim(), order: i })));
+  } else if (act === 'save-leads') {
+    const rows = [...document.querySelectorAll('.lead-edit')].map(i => ({ o: i.dataset.leadOrig, n: i.value.trim() }));
+    const next = [...new Set(rows.filter(r => r.n).map(r => r.n))];
+    for (const r of rows) if (r.o && r.n && r.o !== r.n) { // 改名：舊行程一起改
+      await db.ensureWhere('events', 'lead', r.o);
+      for (const e of db.all('events').filter(e => e.lead === r.o)) await db.update('events', e.id, { lead: r.n });
+    }
+    await db.saveSettings({ leads: next.length ? next : L.DEFAULT_LEADS });
   } else if (act === 'save-code') {
     const codes = Object.fromEntries($('#code-text').value.split('\n').map(l => l.split('=')).filter(x => x[1]).map(([k, v]) => [k.trim(), v.trim()]));
     await db.saveSettings({ codes: Object.keys(codes).length ? codes : DEFAULT_CODES });

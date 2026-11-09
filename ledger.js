@@ -238,3 +238,8 @@ export function findDuplicate(tx, skip = new Set()) {
   return list.some(t => t.account === tx.account && +t.amount === +tx.amount && t.type === tx.type &&
     Math.abs(new Date(t.date) - new Date(tx.date)) <= 2 * 864e5);
 }
+
+// 客源選項（可在設定裡自己改名稱）
+export const DEFAULT_LEADS = ['回頭客', '粉專', 'Google 地圖', 'Google 廣告', '社團', '朋友介紹', 'AI 推薦', '其他'];
+export const leads = () => db.settings().leads || DEFAULT_LEADS;
+export const leadOptions = cur => { const ls = leads(); const all = cur && !ls.includes(cur) ? [...ls, cur] : ls; return `<option value="">（未填）</option>${all.map(x => `<option ${x === cur ? 'selected' : ''}>${x.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('')}`; };

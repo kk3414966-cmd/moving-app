@@ -414,3 +414,5 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .wrow.dropt { background: #cfeee0 !important; }
 .lead-pick { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .lead-pick select { flex: 1; }
+.lead-edit { display: block; width: 100%; margin: 6px 0; }
+.lead-miss { cursor: pointer; }
