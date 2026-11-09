@@ -4,7 +4,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
-body { padding-bottom: 150px; }
+body { padding-bottom: 150px; overscroll-behavior-x: none; }
+html { overscroll-behavior-x: none; }
 button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; color: var(--ink); }
 button.primary { background: var(--navy); color: #fff; border-color: var(--navy); }
 button.danger { color: var(--red); border-color: var(--red); }

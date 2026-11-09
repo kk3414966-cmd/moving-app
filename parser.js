@@ -166,7 +166,11 @@ export function legacyAmount(a, b) { return +a * 1000 + +b.padEnd(3, '0'); }
 export function parseLine(input, opts = {}) {
   const now = opts.now || new Date();
   const categories = opts.categories || DEFAULT_CATEGORIES;
-  const raw = input.trim();
+  // 手機輸入法常打出全形的「：」「０-９」，先換成半形，不然「9：00」會被當成日期、時間被吃掉
+  const raw = input.trim()
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/：/g, ':')
+    .replace(/(\d)[。．](?=\s*\d{1,2}:\d{2})/g, '$1 ');
   if (!raw) return null;
   // 第一行是主要內容，後面幾行（例如貼上的估價單）當備註
   const [first, ...more] = raw.split(/\r?\n/);

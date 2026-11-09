@@ -175,10 +175,16 @@ function statsView() {
       if (t.type === 'income') d.inc += +t.amount; else d.cost += +t.amount;
     }
     const svc = Object.entries(s.service).sort((a, b) => b[1].count - a[1].count);
+    // 工作收入（搬家、清運…）和家具收入（二手家具賣出）分開算；加起來還是原本的總收入，淨利不變
+    const lFurn = wInc.filter(t => t.category === '二手家具賣出'), lJob = wInc.filter(t => t.category !== '二手家具賣出');
     return `${head}
     <section><h3>淨利</h3>
       <table class="formula">
-        ${frow('工作收入', s.workIncome, wInc, 'g')}
+        ${frow('工作收入（搬家、清運…）', tot(lJob), lJob, 'g')}
+        ${frow('＋ 家具收入（二手家具賣出）', tot(lFurn), lFurn, 'g')}
+      </table>
+      <table class="formula">
+        ${frow('總收入（工作＋家具）', s.workIncome, wInc, 'g')}
         ${frow('－ 幫手', helper, lHelper, 'r')}
         ${frow('－ 車子（油錢、停車、過路費、修車）', car, lCar, 'r')}
         ${frow(`－ 其他成本（${esc(otherNames)}）`, other, lOther, 'r')}
@@ -624,6 +630,26 @@ function render() {
   else if (state.lastTab !== state.tab) window.scrollTo(0, 0);
   state.lastTab = state.tab;
 }
+
+// 左滑／右滑切換分頁：對話框 ⇄ 行事曆 ⇄ 統計
+// 不搶別人的手勢：月曆格子（本來就是左右滑換月）、彈出視窗、輸入框、可橫向捲動的區塊（常用記帳按鈕）、長按拖移中都不切
+const TAB_ORDER = ['chat', 'cal', 'stats'];
+let swipe0 = null;
+document.addEventListener('touchstart', e => {
+  const el = e.target;
+  const skip = e.touches.length !== 1 || $('#modal').classList.contains('open') ||
+    el.closest('#calgrid, textarea, input, select, #shortcuts, .tip, .bars');
+  swipe0 = skip ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  const s = swipe0; swipe0 = null;
+  if (!s || Date.now() - s.t > 700 || $('#modal').classList.contains('open')) return;
+  const dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
+  if (Math.abs(dx) < 80 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+  const i = TAB_ORDER.indexOf(state.tab), n = i + (dx < 0 ? 1 : -1);
+  if (n < 0 || n >= TAB_ORDER.length) return;
+  state.tab = TAB_ORDER[n]; render();
+}, { passive: true });
 
 document.addEventListener('click', async e => {
   // 手機沒有滑鼠：點一下打開細項，再點一下收起來
