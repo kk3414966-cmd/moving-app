@@ -8,10 +8,6 @@ const imgUrl = p => !p ? '' : /^(https?:|data:)/.test(p) ? p : siteFilesBase + p
 
 // 每一類有哪些欄位
 const SECTIONS = {
-  videos: { title: '搬家實錄・短影片', hint: '貼 YouTube／IG／FB 的影片網址，再選一張封面照。', img: true,
-    fields: [['title', '標題', '例如：兩房搬家 3 小時完成'], ['url', '影片網址', 'https://…']] },
-  cases: { title: '搬家實錄・案例', hint: '一張照片配從哪搬到哪。', img: true,
-    fields: [['from', '從', '西屯'], ['to', '到', '北屯'], ['type', '房型', '兩房'], ['floors', '樓層', '3 樓 → 電梯'], ['trucks', '車數', '一車'], ['hours', '花多久', '3 小時'], ['text', '一句話', '衣櫃、冰箱全部包好，一車搞定。']] },
   reviews: { title: 'Google 評論', hint: '從 Google 地圖複製評論貼上。只放真實客人寫的。', img: false,
     fields: [['name', '名字', '王小姐'], ['text', '評論內容', '', 'area']] },
   used: { title: '二手家具', hint: '賣掉了就勾「已售出」，官網會標示。', img: true,
@@ -44,7 +40,7 @@ function render() {
       <button data-cms-add="${key}">＋ 新增</button></section>`;
   };
   api.openModal(`${api.modalHead('官網內容')}
-    <p class="muted">改完按最下面的「儲存到官網」，大約 1～5 分鐘後官網就會更新。</p>
+    <p class="muted">改完按最下面的「儲存到官網」，大約 1～5 分鐘後官網就會更新。<br>搬家實錄的短影片和案例會自動從粉專來，不用在這裡填。</p>
     <section class="cms-sec"><h4>封面照</h4><p class="muted">首頁最上面那張大照片。建議用橫的照片。</p>
       <div class="cms-hero">${C.hero ? `<img src="${esc(imgUrl(C.hero))}" alt="">` : '<span class="muted">目前用預設的照片</span>'}</div>
       <label class="cms-pick">選照片<input type="file" accept="image/*" data-cms-img="hero"></label></section>
