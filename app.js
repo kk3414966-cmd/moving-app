@@ -125,10 +125,10 @@ function tip(list) {
   return `<div class="tip">${rows ? `<div class="tip-h">${list.length} 筆・點一筆可以修改</div>${rows}` : '<p class="muted">沒有明細</p>'}</div>`;
 }
 
-function leadTip(evs) {
+function leadTip(evs, pick) {
   const nameOf = e => e.client || (e.title || '').replace(/^\s*\$?\d*\s*\d{1,2}\.\S+\s*/, '').trim() || '（沒名字）';
-  const rows = evs.slice().sort(byDate).map(e => `<div class="tip-row" data-ev="${e.id}"><span class="d">${md(e.date)}</span><span class="w">${esc(nameOf(e))}<small>${esc(e.title || '')}</small></span><b class="g">${e.done ? money(e.amount) : '未完成'}</b></div>`).join('');
-  return `<div class="tip"><div class="tip-h">${evs.length} 件・點一筆可以看／修改</div>${rows}</div>`;
+  const rows = evs.slice().sort(byDate).map(e => `<div class="tip-row" data-ev="${e.id}"><span class="d">${md(e.date)}</span><span class="w">${esc(nameOf(e))}<small>${esc(e.title || '')}</small></span>${pick ? `<select data-lead="${e.id}">${L.leadOptions('')}</select>` : `<b class="g">${e.done ? money(e.amount) : '未完成'}</b>`}</div>`).join('');
+  return `<div class="tip"><div class="tip-h">${evs.length} 件・${pick ? '直接選客源就會存' : '點一筆可以看／修改'}</div>${rows}</div>`;
 }
 
 function donut(obj, lists = {}) {
@@ -211,7 +211,7 @@ function statsView() {
     <section><h3>客源 <small class="muted">客人怎麼找到你（點行程→客源）</small></h3>
       <table><tr><th>客源</th><th>件數</th><th>已收金額</th></tr>
       ${leadRows.map(([k, v]) => `<tr class="has-tip"><td>${esc(k)}<span class="hint">ⓘ</span>${leadTip(v.evs)}</td><td>${v.n}</td><td>${v.sum ? money(v.sum) : '—'}</td></tr>`).join('')|| '<tr><td colspan="3" class="muted">這個月沒有工作</td></tr>'}</table>
-      ${leadMissingList.length ? `<div class="has-tip muted lead-miss">還有 ${leadMissingList.length} 件沒填客源 <span class="hint">ⓘ</span>${leadTip(leadMissingList)}</div>` : ''}
+      ${leadMissingList.length ? `<div class="has-tip muted lead-miss">還有 ${leadMissingList.length} 件沒填客源 <span class="hint">ⓘ</span>${leadTip(leadMissingList, true)}</div>` : ''}
     </section>
     <section><h3>服務項目</h3><table><tr><th>服務</th><th>次數</th><th>平均收</th></tr>
       ${svc.map(([k, v]) => `<tr><td>${esc(k)} ${esc(code[k] || '')}</td><td>${v.count}</td><td>${v.done ? money(v.total / v.done) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">沒有工作</td></tr>'}</table>
@@ -681,6 +681,7 @@ document.addEventListener('touchend', e => {
 
 document.addEventListener('click', async e => {
   // 手機沒有滑鼠：點一下打開細項，再點一下收起來
+  if (e.target.closest('select[data-lead]')) return; // 在清單裡選客源：不要展開／收起、也不要打開行程
   const ht = e.target.closest('.has-tip');
   if (ht && !e.target.closest('.tip')) {
     document.querySelectorAll('.has-tip.open').forEach(x => x !== ht && x.classList.remove('open'));

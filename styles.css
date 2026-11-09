@@ -416,3 +416,4 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .lead-pick select { flex: 1; }
 .lead-edit { display: block; width: 100%; margin: 6px 0; }
 .lead-miss { cursor: pointer; }
+.tip-row select { flex: none; width: 108px; margin: 0; padding: 6px; }
