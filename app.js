@@ -689,6 +689,39 @@ function recentTx() {
 }
 const txInput = t => `${t.type === 'income' ? '+' : '-'}${t.amount}${t.note || t.category}${BANKS.includes(t.account) ? ' ' + t.account : ''}`;
 
+
+// ---- 客人確認報價單 → 自動加進行事曆（只有開著 APP 時才會加，下次打開也會補上）----
+const calBusy = new Set();
+function quoteDate(txt) {
+  const t = String(txt || '').replace(/[：]/g, ':');
+  const m = t.match(/(?:(\d{4})[\/\-年])?(\d{1,2})[\/月\-](\d{1,2})/);
+  if (!m) return null;
+  const now = new Date(); let y = +m[1] || now.getFullYear();
+  const mo = +m[2], d = +m[3]; if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  if (!m[1] && new Date(y, mo - 1, d + 1) < now) y += 1;
+  const tm = t.slice(m.index + m[0].length).match(/(\d{1,2}):(\d{2})/);
+  const p2 = n => String(n).padStart(2, '0');
+  return { date: `${y}-${p2(mo)}-${p2(d)}`, time: tm ? `${p2(+tm[1])}:${tm[2]}` : '' };
+}
+async function quoteToCalendar() {
+  for (const q of db.quotesAll()) {
+    if (q.status !== '已確認' || q.calDone || calBusy.has(q.id)) continue;
+    calBusy.add(q.id);
+    try {
+      const dt = quoteDate(q.date);
+      const area = x => (String(x || '').match(/[\u4e00-\u9fa5]{1,3}[區鄉鎮市]/) || [''])[0];
+      const route = [area(q.from), area(q.to)].filter(Boolean).join('');
+      const title = [route, q.name].filter(Boolean).join(' ');
+      const note = ['報價單 ' + (q.no || ''), '舊址：' + (q.from || ''), '新址：' + (q.to || ''), '總價 NT$' + q.total + '，訂金 NT$' + q.dep, q.sig ? '客人已簽名' : '', q.custNote ? '客人備註：' + q.custNote : '', q.date ? '客人填的日期：' + q.date : ''].filter(Boolean).join('\n');
+      if (!dt) { await db.quoteUpdate(q.id, { calDone: true, calFail: true }); toast('「' + q.name + '」確認了，但日期看不懂，請自己加行程'); continue; }
+      const endT = dt.time ? (() => { const [h, mi] = dt.time.split(':').map(Number); return String((h + 1) % 24).padStart(2, '0') + ':' + String(mi).padStart(2, '0'); })() : '';
+      await db.add('events', { type: 'event', title, date: dt.date, endDate: '', allDay: !dt.time, time: dt.time, endTime: endT, repeat: '', label: 0, note, lead: '', done: false, amount: 0, source: '報價單', quoteId: q.id });
+      await db.quoteUpdate(q.id, { calDone: true });
+      toast('「' + q.name + '」確認了，已加進行事曆 ' + dt.date);
+    } catch (e) { calBusy.delete(q.id); }
+  }
+}
+
 // ================= 主框架 =================
 let quoteRoot = null, quoteApi = null;
 function render() {
@@ -802,7 +835,7 @@ window.addEventListener('offline', render);
     $('#composer').classList.add('hide');
     return;
   }
-  db.onChange(() => { if (!$('#modal').classList.contains('open')) render(); });
+  db.onChange(() => { quoteToCalendar(); if (!$('#modal').classList.contains('open')) render(); });
   render();
   // 等雲端資料對完才放預設值、算官網，免得手機暫存還沒齊就蓋掉
   db.synced().then(async ok => {
