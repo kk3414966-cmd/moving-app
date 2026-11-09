@@ -79,7 +79,7 @@ function buildTitle(d){
  });
  var ca=countyOf(d.from), cb=countyOf(d.to); if(ca&&cb&&ca!==cb) dg['6']=1;
  var a1=areaOf(d.from)||ca.replace(/[縣市]$/,''), a2=areaOf(d.to)||cb.replace(/[縣市]$/,'');
- var ff=String(d.fromFloor||''), tf=String(d.toFloor||'');
+ var ff=d.fromElev==='有'?'0':String(d.fromFloor||''), tf=d.toElev==='有'?'0':String(d.toFloor||''); // 有電梯一律寫 0，沒電梯寫樓層
  var code=Object.keys(dg).sort().join('');
  var head='';
  if(code){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
