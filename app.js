@@ -732,7 +732,7 @@ function render() {
       quoteRoot = document.createElement('div'); quoteRoot.id = 'qroot';
       quoteApi = mountQuotes(quoteRoot, {
         settings: db.settings, saveSettings: db.saveSettings,
-        quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate,
+        quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate, deleteQuote: db.quoteDelete,
       });
     } else quoteApi.refresh();
     if (view.firstChild !== quoteRoot) { view.innerHTML = ''; view.appendChild(quoteRoot); }

@@ -195,6 +195,10 @@ export async function quoteSave(q) {
   if (mode === 'local') saveQuotesLocal(); else await fs.setDoc(fs.doc(db, 'quotes', rec.id), stripId(rec));
   return rec;
 }
+export async function quoteDelete(id) {
+  quoteCache.delete(id); notify();
+  if (mode === 'local') saveQuotesLocal(); else await fs.deleteDoc(fs.doc(db, 'quotes', id));
+}
 export async function quoteUpdate(id, patch) {
   const rec = { ...quoteCache.get(id), ...patch, id };
   quoteCache.set(id, rec); notify();
