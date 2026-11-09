@@ -32,7 +32,7 @@ function n(v){v=parseInt(String(v||'').replace(/[^0-9]/g,''),10);return isNaN(v)
 function fm(v){return 'NT$ '+Number(v).toLocaleString('en-US')}
 function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function defaultVal(d){
- if(d.type==='truck') return {truck:5000,trips:2};
+ if(d.type==='truck') return {truck:5000,trips:1};
  if(d.type==='time') return {price:3000,hrs:2,over:1500,est:2};
  if(d.type==='lines') return {lines:[{n:'',q:'1',p:0}]};
  return {amt:0};
@@ -66,14 +66,15 @@ function readDateText(txt){
  return r;
 }
 
-var SRC=['地','回','賴','粉'];
+var SRC_DEF=['地','回','賴','粉'], srcManage=false;
+function srcList(){ var l=api.settings().quoteSrc; return (l&&l.length)?l:SRC_DEF; }
 function countyOf(a){ var m=String(a||'').replace(/臺/g,'台').match(/^\s*([一-龥]{2,3}[縣市])/); return m?m[1]:''; }
 function areaOf(a){ var t=String(a||'').replace(/臺/g,'台').replace(/^\s*[一-龥]{2,3}[縣市]/,''), m=t.match(/([一-龥]{1,3}?)([區鄉鎮])/); if(!m) return ''; return m[1].length===1?m[1]+m[2]:m[1]; }
 function buildTitle(d){
  var dg={}, texts=[], mv=null;
  defs.forEach(function(x){
   if(!d.on[x.id]) return;
-  if(x.id==='move'){ dg['3']=1; mv=d.v[x.id]; if(!mv.half) dg['0']=1; }
+  if(x.id==='move'){ dg['3']=1; mv=d.v[x.id]; if(!(mv.trips>0&&mv.trips<1)) dg['0']=1; }
   else if(x.id==='pack') dg['8']=1; else if(x.id==='place') dg['9']=1; else if(x.id==='junk') dg['7']=1;
   else texts.push({furn:'拆',clean:'清',store:'倉'}[x.id]||String(x.name||'').charAt(0)); // 沒代號的項目：拆／清／倉（自訂項目取第一個字），寫在代號後面、點之前
  });
@@ -82,7 +83,7 @@ function buildTitle(d){
  var ff=d.fromElev==='有'?'0':String(d.fromFloor||''), tf=d.toElev==='有'?'0':String(d.toFloor||''); // 有電梯一律寫 0，沒電梯寫樓層
  var code=Object.keys(dg).sort().join('');
  var head='';
- var tx=texts.join(''); if(code||tx){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+tx+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
+ var tx=texts.join(''); if(code||tx){ head=(mv&&mv.trips>1?mv.trips+'×':'')+code+tx+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
  var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat([d.src||'']).filter(Boolean);
  return parts.join(' ');
 }
@@ -92,7 +93,7 @@ function calcItems(d){
  defs.forEach(function(x){
   if(!d.on[x.id]) return;
   var v=d.v[x.id];
-  if(x.type==='truck'){ if(v.half) out.push({id:x.id,name:x.name,sub:'半車（東西少；實際車趟數當天看現場確認）',amt:v.truck}); else out.push({id:x.id,name:x.name,sub:'每車 '+fm(v.truck)+' × 預估 '+v.trips+' 車（實際車趟數當天看現場確認）',amt:v.truck*v.trips}); }
+  if(x.type==='truck') out.push({id:x.id,name:x.name,sub:'每車 '+fm(v.truck)+' × 預估 '+v.trips+' 車（實際車趟數當天看現場確認）',amt:Math.round(v.truck*v.trips)});
   else if(x.type==='time'){
    var extra=v.est>v.hrs?Math.ceil(v.est-v.hrs)*v.over:0;
    out.push({id:x.id,name:x.name,sub:fm(v.price)+'／'+v.hrs+' 小時，超過每小時 '+fm(v.over).replace('NT$ ','')+(v.est>v.hrs?'；預估 '+v.est+' 小時，含超時 '+fm(extra):''),amt:v.price+extra});
@@ -182,7 +183,7 @@ function renderApp(){
  +'<div class="row2"><input type="date" id="f_dateV" value="'+esc(d.dateV)+'" aria-label="搬家日期"><select id="f_timeV" aria-label="時間">'+SLOTS.map(function(x){return '<option value="'+x+'"'+((d.timeV||'待補')===x?' selected':'')+'>'+(x==='待補'?'時間待補':x)+'</option>'}).join('')+'</select></div>'
  +'<input id="f_from" placeholder="舊址（區域、路名）" value="'+esc(d.from)+'">'+elevRow('from',d)
  +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)
- +'<div class="row"><span class="muted">來源</span>'+SRC.map(function(k){return '<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+k+'">'+k+'</button>'}).join('')+'<span class="muted">（客人看不到）</span></div></section>';
+ +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return srcManage?'<button type="button" class="chip" data-srcdel="'+esc(k)+'" style="color:#B91C1C">'+esc(k)+' ✕</button>':'<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋</button><button type="button" class="chip" id="srcMng">'+(srcManage?'完成':'管理')+'</button></div><div class="muted">來源客人看不到，只會寫在行事曆標題最後面。</div></section>';
  h+='<section><div class="sp"><h2>服務項目（點一下勾選）</h2><button class="btn sm sec" id="mng">'+(manage?'完成':'管理項目')+'</button></div>';
  if(manage){
   h+='<div class="box">在這裡可以改名稱、改計價方式、刪除，或新增自己的項目。</div>';
@@ -203,7 +204,7 @@ function renderApp(){
   defs.forEach(function(x){
    if(!d.on[x.id]) return; any=true; var v=d.v[x.id], k=x.id;
    h+='<div class="card"><b>'+esc(x.name)+'</b>';
-   if(x.type==='truck') h+='<div class="row"><input id="t_'+k+'" data-f="truck" data-k="'+k+'" inputmode="numeric" value="'+v.truck+'" style="width:110px"><span class="muted">元／車 × 預估</span><input id="r_'+k+'" data-f="trips" data-k="'+k+'" inputmode="numeric" value="'+v.trips+'" style="width:56px"><span class="muted">車</span></div><button type="button" class="chip'+(v.half?' on':'')+'" data-half="'+k+'">'+(v.half?'✓ ':'')+'半車（東西很少，代號不加 0）</button><div class="sp"><span class="muted">小計'+(v.half?'（半車：上面「元／車」填半車價）':'')+'</span><b data-isub="'+k+'">'+fm(v.half?v.truck:v.truck*v.trips)+'</b></div>';
+   if(x.type==='truck') h+='<div class="row"><input id="t_'+k+'" data-f="truck" data-k="'+k+'" inputmode="numeric" value="'+v.truck+'" style="width:110px"><span class="muted">元／車 × 預估</span><input id="r_'+k+'" data-f="trips" data-k="'+k+'" inputmode="decimal" value="'+v.trips+'" style="width:56px"><span class="muted">車</span></div><div class="muted">車數可輸入 0.5（半車）、1.5（一車半）</div><div class="sp"><span class="muted">小計</span><b data-isub="'+k+'">'+fm(Math.round(v.truck*v.trips))+'</b></div>';
    else if(x.type==='time') h+='<div class="muted">基本價與時數、超時費可在這裡改</div><div class="row"><input id="p_'+k+'" data-f="price" data-k="'+k+'" inputmode="numeric" value="'+v.price+'" style="width:96px"><span class="muted">元／</span><input id="h_'+k+'" data-f="hrs" data-k="'+k+'" inputmode="numeric" value="'+v.hrs+'" style="width:56px"><span class="muted">小時</span></div>'
     +'<div class="row"><span class="muted">超時每小時</span><input id="o_'+k+'" data-f="over" data-k="'+k+'" inputmode="numeric" value="'+v.over+'" style="width:96px"><span class="muted">元</span></div>'
     +'<div class="row"><span class="muted">預估共</span><input id="e_'+k+'" data-f="est" data-k="'+k+'" inputmode="numeric" value="'+v.est+'" style="width:56px"><span class="muted">小時</span><span style="flex:1"></span><b data-isub="'+k+'">'+fm(v.price+(v.est>v.hrs?Math.ceil(v.est-v.hrs)*v.over:0))+'</b></div>';
@@ -246,8 +247,10 @@ function bindApp(){
  if($('paste')) $('paste').oninput=function(){d.raw=this.value};
  if($('doParse')) $('doParse').onclick=function(){ d._pmsg=parsePaste($('paste').value); renderApp(); };
  if($('f_disc')) $('f_disc').oninput=function(){d.disc=n(this.value); rk('f_disc')};
- rootEl.querySelectorAll('[data-f]').forEach(function(el){ el.oninput=function(){ var v=d.v[el.getAttribute('data-k')], f=el.getAttribute('data-f'); v[f]=n(el.value); if(f==='trips'&&v.trips<1)v.trips=1; if(f==='hrs'&&v.est<v.hrs)v.est=v.hrs; rk(el.id)}; });
- rootEl.querySelectorAll('[data-half]').forEach(function(b){ b.onclick=function(){ var v=d.v[b.getAttribute('data-half')]; v.half=!v.half; renderApp(); }; });
+ rootEl.querySelectorAll('[data-f]').forEach(function(el){ el.oninput=function(){ var v=d.v[el.getAttribute('data-k')], f=el.getAttribute('data-f'); v[f]=(f==='trips')?(parseFloat(String(el.value).replace(/[^0-9.]/g,''))||0):n(el.value); if(f==='trips'&&!(v.trips>0))v.trips=0; if(f==='hrs'&&v.est<v.hrs)v.est=v.hrs; rk(el.id)}; });
+  if($('srcAdd')) $('srcAdd').onclick=function(){ var v=prompt('新增來源（例如：社、AI）'); v=(v||'').trim(); if(!v) return; var l=srcList().slice(); if(l.indexOf(v)<0) l.push(v); api.saveSettings({quoteSrc:l}); d.src=v; renderApp(); };
+ if($('srcMng')) $('srcMng').onclick=function(){ srcManage=!srcManage; renderApp(); };
+ rootEl.querySelectorAll('[data-srcdel]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-srcdel'); api.saveSettings({quoteSrc:srcList().filter(function(x){return x!==k})}); if(d.src===k) d.src=''; renderApp(); }; });
  rootEl.querySelectorAll('[data-src]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-src'); d.src=(d.src===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-chip]').forEach(function(b){ b.onclick=function(){var k=b.getAttribute('data-chip'); d.on[k]=!d.on[k]; renderApp()}; });
  rootEl.querySelectorAll('[data-ln]').forEach(function(el){ el.oninput=function(){var p=el.getAttribute('data-ln').split('|'); d.v[p[0]].lines[+p[1]].n=el.value}; });
@@ -259,7 +262,7 @@ function bindApp(){
  rootEl.querySelectorAll('[data-fl]').forEach(function(el){ el.oninput=function(){ d[el.getAttribute('data-fl')+'Floor']=el.value.replace(/[^0-9]/g,''); }; });
  rootEl.querySelectorAll('[data-el]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-el').split('|'); d[p[0]+'Elev']=p[1]; renderApp(); }; });
  rootEl.querySelectorAll('[data-f],[data-lq],[data-lp],#f_disc').forEach(function(el){ el.onchange=function(){ renderApp(); }; });
- rootEl.querySelectorAll('input[inputmode=numeric]').forEach(function(el){ el.onfocus=function(){ if(noSel) return; var t=this; setTimeout(function(){ try{t.select()}catch(e){} },0); }; });
+ rootEl.querySelectorAll('input[inputmode=numeric],input[inputmode=decimal]').forEach(function(el){ el.onfocus=function(){ if(noSel) return; var t=this; setTimeout(function(){ try{t.select()}catch(e){} },0); }; });
  if($('mng')) $('mng').onclick=function(){manage=!manage; renderApp()};
  rootEl.querySelectorAll('[data-dn]').forEach(function(el){ el.oninput=function(){defs[+el.getAttribute('data-dn')].name=el.value; saveDefs()}; });
  rootEl.querySelectorAll('[data-dt]').forEach(function(el){ el.onchange=function(){var x=defs[+el.getAttribute('data-dt')]; x.type=el.value; d.v[x.id]=defaultVal(x); saveDefs(); renderApp()}; });
