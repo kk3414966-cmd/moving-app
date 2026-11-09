@@ -83,7 +83,7 @@ function buildTitle(d){
  var code=Object.keys(dg).sort().join('');
  var head='';
  if(code){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
- var parts=[(d.timeV||'待補')==='待補'?'(待確)':'', head, d.name.trim()].concat(texts).concat([d.src||'']).filter(Boolean);
+ var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat(texts).concat([d.src||'']).filter(Boolean);
  return parts.join(' ');
 }
 function qty(l){ var t=String(l.q==null?'':l.q).trim(); return /^\d+$/.test(t)?parseInt(t,10):1; }
