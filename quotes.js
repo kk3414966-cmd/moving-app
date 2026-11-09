@@ -308,6 +308,7 @@ function qCard(q){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
   +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
+  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
   +(q.status!=='作廢'?'<button class="btn sm sec" data-void="'+q.id+'">作廢</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';
@@ -335,7 +336,8 @@ function renderList(){
  if($('tgVoid')) $('tgVoid').onclick=function(){showVoid=!showVoid;renderList()};
  ['bank','acct','holder'].forEach(function(k){ var el=$('pay_'+k); if(el) el.oninput=function(){ var p=getPay(); p=Object.assign({},p); p[k]=this.value; clearTimeout(payT); payT=setTimeout(function(){setPay(p)},700); }; });
  $('newQ').onclick=function(){draft=newDraft();screen='new';manage=false;openId=null;renderApp()};
- rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim()})).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
+ rootEl.querySelectorAll('[data-qsrc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qsrc').split('|'), q=find(p[0]); if(!q) return; var k=(q.src===p[1]?'':p[1]), t=String(q.calTitle||''); if(q.src&&t.slice(-(q.src.length+1))===' '+q.src) t=t.slice(0,-(q.src.length+1)); if(k) t=t+' '+k; Promise.resolve(api.updateQuote(q.token,{src:k,calTitle:t})).then(function(){ return api.calSync?api.calSync(q.id,t):0; }).then(function(){ toast2('來源已更新，行事曆同步'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
+ rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim()})).then(function(){ return api.calSync?api.calSync(q.id,el.value.trim()):0; }).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
  rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); var url=BASE+q.token; try{ navigator.clipboard.writeText(url).then(function(){toast2('已複製連結，貼到 LINE 給客人')},function(){toast2('複製失敗，請手動長按連結複製')}); }catch(e){ toast2('複製失敗，請手動長按連結複製'); } }});
