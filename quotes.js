@@ -66,9 +66,15 @@ function readDateText(txt){
  return r;
 }
 
-var SRC_DEF=['地','回'], CTC=['賴','粉','L'], srcManage=false;
+var CTC=['賴','粉','L'];
 function tailOf(c,r){ return (c||'')+(r?'.'+r:''); }
-function srcList(){ var l=api.settings().quoteSrc; return (l&&l.length)?l:SRC_DEF; }
+// 來源選項＝行事曆的「客源」項目（設定→客源項目），兩邊是同一份。標題裡寫代號字（沒有代號字就寫客源全名）。
+var LEAD_MAP_DEF={'地':'Google 地圖','回':'回頭客','粉':'粉專'};
+function leadMapQ(){ return api.settings().leadMap||LEAD_MAP_DEF; }
+function leadNames(){ return api.leads(); }
+function tokenOf(name){ var m=leadMapQ(); for(var k in m) if(m[k]===name) return k; return String(name).replace(/\s+/g,''); }
+function nameOfTok(t){ var m=leadMapQ(); if(m[t]) return m[t]; var ls=leadNames(); for(var i=0;i<ls.length;i++) if(tokenOf(ls[i])===t) return ls[i]; return t; }
+function srcList(){ return leadNames().map(tokenOf); }
 var COUNTIES=['新北','台北','桃園','台中','台南','高雄','基隆','新竹','苗栗','彰化','南投','雲林','嘉義','屏東','宜蘭','花蓮','台東','澎湖','金門','連江'];
 var TC_AREAS=['中區','東區','南區','西區','北區','北屯','西屯','南屯','太平','大里','霧峰','烏日','豐原','后里','石岡','東勢','和平','新社','潭子','大雅','神岡','大肚','沙鹿','龍井','梧棲','清水','大甲','外埔','大安'];
 function countyOf(a){
@@ -197,7 +203,7 @@ function renderApp(){
  +'<input id="f_from" placeholder="舊址（區域、路名）" value="'+esc(d.from)+'">'+elevRow('from',d)
  +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)
  +'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(d.ctc===k?' on':'')+'" data-ctc="'+k+'">'+(k==='L'?'L（公司LINE）':k==='賴'?'賴（個人LINE）':'粉（粉專）')+'</button>'}).join('')+'</div>'
- +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return srcManage?'<button type="button" class="chip" data-srcdel="'+esc(k)+'" style="color:#B91C1C">'+esc(k)+' ✕</button>':'<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋</button><button type="button" class="chip" id="srcMng">'+(srcManage?'完成':'管理')+'</button></div><div class="muted">聯絡＝在哪裡回客人；來源＝客人怎麼找到你。客人看不到，只會寫在行事曆標題最後面（例：賴.回）。</div></section>';
+ +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋ 新增</button></div><div class="muted">聯絡＝在哪裡回客人；來源＝客人怎麼找到你（跟行事曆的「客源」是同一份，改名或刪除請到 設定→客源項目）。客人看不到，只會寫在行事曆標題最後面（例：賴.回）。</div></section>';
  h+='<section><div class="sp"><h2>服務項目（點一下勾選）</h2><button class="btn sm sec" id="mng">'+(manage?'完成':'管理項目')+'</button></div>';
  if(manage){
   h+='<div class="box">在這裡可以改名稱、改計價方式、刪除，或新增自己的項目。</div>';
@@ -262,9 +268,7 @@ function bindApp(){
  if($('doParse')) $('doParse').onclick=function(){ d._pmsg=parsePaste($('paste').value); renderApp(); };
  if($('f_disc')) $('f_disc').oninput=function(){d.disc=n(this.value); rk('f_disc')};
  rootEl.querySelectorAll('[data-f]').forEach(function(el){ el.oninput=function(){ var v=d.v[el.getAttribute('data-k')], f=el.getAttribute('data-f'); v[f]=(f==='trips')?(parseFloat(String(el.value).replace(/[^0-9.]/g,''))||0):n(el.value); if(f==='trips'&&!(v.trips>0))v.trips=0; if(f==='hrs'&&v.est<v.hrs)v.est=v.hrs; rk(el.id)}; });
-  if($('srcAdd')) $('srcAdd').onclick=function(){ var v=prompt('新增來源（例如：社、AI）'); v=(v||'').trim(); if(!v) return; var l=srcList().slice(); if(l.indexOf(v)<0) l.push(v); api.saveSettings({quoteSrc:l}); d.src=v; renderApp(); };
- if($('srcMng')) $('srcMng').onclick=function(){ srcManage=!srcManage; renderApp(); };
- rootEl.querySelectorAll('[data-srcdel]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-srcdel'); api.saveSettings({quoteSrc:srcList().filter(function(x){return x!==k})}); if(d.src===k) d.src=''; renderApp(); }; });
+  if($('srcAdd')) $('srcAdd').onclick=function(){ var v=prompt('新增來源（客人怎麼找到你，例如：社團、整理師）'); v=(v||'').trim(); if(!v) return; var l=leadNames().slice(); if(l.indexOf(v)<0) l.push(v); var tk=prompt('標題裡要用哪一個字代表它？（選填，例如：社；不填就寫全名）'); tk=(tk||'').trim(); var patch={leads:l}; if(tk&&tk.length<=2){ var m=Object.assign({},leadMapQ()); m[tk]=v; patch.leadMap=m; } api.saveSettings(patch); d.src=tk&&tk.length<=2?tk:v; renderApp(); };
  rootEl.querySelectorAll('[data-ctc]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-ctc'); d.ctc=(d.ctc===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-src]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-src'); d.src=(d.src===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-chip]').forEach(function(b){ b.onclick=function(){var k=b.getAttribute('data-chip'); d.on[k]=!d.on[k]; renderApp()}; });
@@ -311,7 +315,7 @@ function qCard(q){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
   +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
-  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(q.ctc===k?' on':'')+'" data-qctc="'+q.id+'|'+k+'">'+k+'</button>'}).join('')+'</div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'</div>':'')
+  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(q.ctc===k?' on':'')+'" data-qctc="'+q.id+'|'+k+'">'+k+'</button>'}).join('')+'</div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
   +(q.status!=='作廢'?'<button class="btn sm sec" data-void="'+q.id+'">作廢</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';

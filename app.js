@@ -479,7 +479,7 @@ function renderLeadBox() {
       if (!n || n === o || cur.includes(n)) { if (!n) toast('名稱不能空白，要拿掉請按垃圾桶'); renderLeadBox(); return; }
       await db.ensureWhere('events', 'lead', o);
       for (const ev of db.all('events').filter(ev => ev.lead === o)) await db.update('events', ev.id, { lead: n });
-      await db.saveSettings({ leads: cur.map(y => y === o ? n : y) }); toast(`已改成「${n}」`); renderLeadBox();
+      { const lm = db.settings().leadMap; await db.saveSettings({ leads: cur.map(y => y === o ? n : y), ...(lm ? { leadMap: Object.fromEntries(Object.entries(lm).map(([k, v]) => [k, v === o ? n : v])) } : {}) }); } toast(`已改成「${n}」`); renderLeadBox();
     });
   }
 }
@@ -753,7 +753,7 @@ function render() {
       quoteRoot = document.createElement('div'); quoteRoot.id = 'qroot';
       quoteApi = mountQuotes(quoteRoot, {
         settings: db.settings, saveSettings: db.saveSettings,
-        quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate, deleteQuote: quoteDeleteAll, calSync: quoteCalSync,
+        quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate, leads: L.leads, deleteQuote: quoteDeleteAll, calSync: quoteCalSync,
       });
     } else quoteApi.refresh();
     if (view.firstChild !== quoteRoot) { view.innerHTML = ''; view.appendChild(quoteRoot); }

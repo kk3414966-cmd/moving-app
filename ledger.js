@@ -244,6 +244,6 @@ export function findDuplicate(tx, skip = new Set()) {
 export const DEFAULT_LEADS = ['回頭客', '粉專', 'Google 地圖', 'Google 廣告', '社團', '朋友介紹', 'AI 推薦', '其他'];
 // 標題最後的來源字（地／回／粉）→ 客源。賴＝LINE 是回覆管道，不是客源，所以不填。
 export const DEFAULT_LEAD_MAP = { '地': 'Google 地圖', '回': '回頭客', '粉': '粉專' };
-export const leadFromTitle = t => { const w = String(t || '').trim().split(/\s+/); const last = w[w.length - 1] || ''; const k = last.includes('.') ? last.slice(last.lastIndexOf('.') + 1) : (w.length > 1 ? last : ''); const m = db.settings().leadMap || DEFAULT_LEAD_MAP; return (k && m[k]) || ''; };
+export const leadFromTitle = t => { const w = String(t || '').trim().split(/\s+/); const last = w[w.length - 1] || ''; const k = last.includes('.') ? last.slice(last.lastIndexOf('.') + 1) : (w.length > 1 ? last : ''); const m = db.settings().leadMap || DEFAULT_LEAD_MAP; return (k && (m[k] || (leads().find(x => x.replace(/\s+/g, '') === k) || ''))) || ''; };
 export const leads = () => db.settings().leads || DEFAULT_LEADS;
 export const leadOptions = cur => { const ls = leads(); const all = cur && !ls.includes(cur) ? [...ls, cur] : ls; return `<option value="">（未填）</option>${all.map(x => `<option ${x === cur ? 'selected' : ''}>${x.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('')}`; };

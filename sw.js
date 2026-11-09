@@ -1,5 +1,5 @@
 // 離線用：App 本身的檔案先存起來，沒網路也能打開記帳。
-const CACHE = 'moving-app-v35';
+const CACHE = 'moving-app-v36';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'calendar.js', 'parser.js', 'store.js', 'ledger.js', 'ai.js', 'files.js', 'gmail.js', 'config.js', 'availability.js', 'sitecms.js', 'quotes.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
