@@ -376,14 +376,25 @@ function settingsView() {
   const accs = db.all('accounts'), cats = L.categories(), scs = db.all('shortcuts').sort((a, b) => a.order - b.order);
   const year = today().slice(0, 4), ym = today().slice(0, 7);
   openModal(`${modalHead('設定')}
-  <section><h4>帳號</h4>
-    <p>${db.getMode() === 'local' ? '目前是<b>本機試用模式</b>：資料只存在這支手機的瀏覽器。照「設定教學」連上 Firebase 後就能雲端同步。' : `已登入：${esc(db.userName())}`}</p>
-    ${db.getMode() === 'cloud' ? '<button data-act="logout">登出</button>' : ''}
-  </section>
+  <details class="set-grp"><summary><b>📒 記帳與客人</b><small>分類、客源、工作代號</small></summary>
+  <section><h4>分類與關鍵字</h4><p class="muted">設定每個分類算公帳還是私帳（一鍵把以前的全部改過來），以及打字時用哪些字自動分類。目前 ${cats.length} 個分類。</p>
+    <button class="primary" data-act="cat-editor">編輯分類</button></section>
+  <section><h4>客源項目</h4><p class="muted">客人怎麼找到你。可以新增（例：整理師配合）、刪除（例：回頭客）、直接改名。改名會連以前的行程一起改。</p>
+    <div id="lead-box"></div></section>
+  <section><h4>代號對照表</h4><p class="muted">一行一個：數字=意思（0 固定代表 3.5 噸車）</p>
+    <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
+  </details>
+  <details class="set-grp"><summary><b>📅 行事曆</b><small>時間顯示、標籤顏色</small></summary>
   <section><h4>時間顯示</h4><p class="muted">行事曆的時間要用 24 小時制（15:30）還是 12 小時制（下午 3:30）。</p>
     <button data-c-tf>時間顯示：${st.timeFormat === '12' ? '12' : '24'} 小時制（點一下切換）</button></section>
+  <section><h4>行事曆標籤</h4><p class="muted">改標籤名稱、顏色，以及對話框輸入時工作／記帳／記事自動用哪個標籤。</p>
+    <button class="primary" data-c-labels>編輯標籤</button></section>
+  </details>
+  <details class="set-grp"><summary><b>🌐 官網</b><small>換照片、案例、評論、二手家具</small></summary>
   <section><h4>官網內容</h4><p class="muted">換封面照、加搬家影片和案例、貼 Google 評論、上架二手家具。</p>
     <button class="primary" data-act="site-cms">編輯官網內容</button></section>
+  </details>
+  <details class="set-grp"><summary><b>📥 匯入／匯出</b><small>Excel 匯出、舊資料與帳單匯入</small></summary>
   <section><h4>匯出 Excel</h4><div class="row">
     <button data-export="${ym}">匯出本月</button><button data-export="${year}">匯出 ${year} 全年（報稅用）</button></div></section>
   <section><h4>匯入</h4>
@@ -391,6 +402,8 @@ function settingsView() {
     <label>網銀下載的帳單（CSV／Excel／PDF）
       <select id="bill-bank">${BANKS.map(b => `<option>${b}</option>`).join('')}</select><input type="file" accept=".csv,.xls,.xlsx,.pdf" id="bill-file"></label>
   </section>
+  </details>
+  <details class="set-grp"><summary><b>✉️ Gmail 自動記帳</b><small>讀取刷卡通知、PDF 密碼</small></summary>
   <section><h4>Gmail 自動記帳</h4>
     <p class="muted">${st.gmailLinked ? '已連結過 Gmail。' : '尚未連結。'}只要求「唯讀」權限，只搜尋四家銀行的信，不會要你的 Gmail 密碼。</p>
     <div class="row"><button class="primary" data-act="gmail">讀取 Gmail 刷卡紀錄（最近 40 天）</button>
@@ -401,14 +414,13 @@ function settingsView() {
     <label>寄件者 Email（選填，讓搜尋更準）${accs.filter(a => a.kind === '信用卡').map(a => `<input data-sender="${a.id}" placeholder="${a.name} 的寄件者，例如 service@xxx.com.tw" value="${esc(a.sender || '')}">`).join('')}</label>
     <button data-act="save-gmail">儲存密碼與寄件者</button>
   </section>
-  <section><h4>行事曆標籤</h4><p class="muted">改標籤名稱、顏色，以及對話框輸入時工作／記帳／記事自動用哪個標籤。</p>
-    <button class="primary" data-c-labels>編輯標籤</button></section>
-  <section><h4>分類與關鍵字</h4><p class="muted">設定每個分類算公帳還是私帳（一鍵把以前的全部改過來），以及打字時用哪些字自動分類。目前 ${cats.length} 個分類。</p>
-    <button class="primary" data-act="cat-editor">編輯分類</button></section>
-  <section><h4>客源項目</h4><p class="muted">客人怎麼找到你。可以新增（例：整理師配合）、刪除（例：回頭客）、直接改名。改名會連以前的行程一起改。</p>
-    <div id="lead-box"></div></section>
-  <section><h4>代號對照表</h4><p class="muted">一行一個：數字=意思（0 固定代表 3.5 噸車）</p>
-    <textarea id="code-text" rows="10">${esc(Object.entries(code).map(([k, v]) => `${k}=${v}`).join('\n'))}</textarea><button data-act="save-code">儲存</button></section>
+  </details>
+  <details class="set-grp"><summary><b>👤 帳號</b><small>登入狀態、登出</small></summary>
+  <section><h4>帳號</h4>
+    <p>${db.getMode() === 'local' ? '目前是<b>本機試用模式</b>：資料只存在這支手機的瀏覽器。照「設定教學」連上 Firebase 後就能雲端同步。' : `已登入：${esc(db.userName())}`}</p>
+    ${db.getMode() === 'cloud' ? '<button data-act="logout">登出</button>' : ''}
+  </section>
+  </details>
   <div class="row"><button data-close>關閉</button></div>`);
 
   renderLeadBox();

@@ -419,3 +419,16 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .tip-row select { flex: none; width: 108px; margin: 0; padding: 6px; }
 .lead-row { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .lead-row .lead-edit { flex: 1; margin: 0; }
+
+.set-grp { background: #fff; border: 1px solid var(--line); border-radius: 14px; margin: 10px 0; overflow: hidden; }
+.set-grp > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.set-grp > summary::-webkit-details-marker { display: none; }
+.set-grp > summary b { font-size: 16px; }
+.set-grp > summary small { color: var(--muted); font-weight: 400; }
+.set-grp > summary::after { content: '›'; position: absolute; right: 18px; font-size: 22px; color: var(--muted); transform: translateY(-8px); transition: transform .15s; }
+.set-grp { position: relative; }
+.set-grp[open] > summary::after { transform: translateY(-8px) rotate(90deg); }
+.set-grp[open] > summary { border-bottom: 1px solid var(--line); }
+.set-grp > section { padding: 4px 16px 12px; }
+.set-grp > section { border: 0; box-shadow: none; background: transparent; border-radius: 0; margin: 0; border-top: 1px solid var(--line); }
+.set-grp > section:first-of-type { border-top: 0; }
