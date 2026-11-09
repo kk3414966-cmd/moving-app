@@ -38,7 +38,7 @@ function defaultVal(d){
  return {amt:0};
 }
 function newDraft(){
- var d={raw:'',name:'',date:'',dateV:'',timeV:'待補',from:'',fromFloor:'',fromElev:'有',to:'',toFloor:'',toElev:'有',on:{},v:{},disc:0,note:''};
+ var d={raw:'',src:'',name:'',date:'',dateV:'',timeV:'待補',from:'',fromFloor:'',fromElev:'有',to:'',toFloor:'',toElev:'有',on:{},v:{},disc:0,note:''};
  defs.forEach(function(x){d.v[x.id]=defaultVal(x)});
  return d;
 }
@@ -65,13 +65,34 @@ function readDateText(txt){
  else if(/上午|早上/.test(rest)) r.timeV='上午'; else if(/下午/.test(rest)) r.timeV='下午'; else if(/晚上/.test(rest)) r.timeV='晚上';
  return r;
 }
+
+var SRC=['地','回','賴','粉'];
+function countyOf(a){ var m=String(a||'').replace(/臺/g,'台').match(/^\s*([一-龥]{2,3}[縣市])/); return m?m[1]:''; }
+function areaOf(a){ var t=String(a||'').replace(/臺/g,'台').replace(/^\s*[一-龥]{2,3}[縣市]/,''), m=t.match(/([一-龥]{1,3}?)([區鄉鎮])/); if(!m) return ''; return m[1].length===1?m[1]+m[2]:m[1]; }
+function buildTitle(d){
+ var dg={}, texts=[], mv=null;
+ defs.forEach(function(x){
+  if(!d.on[x.id]) return;
+  if(x.id==='move'){ dg['3']=1; mv=d.v[x.id]; if(!mv.half) dg['0']=1; }
+  else if(x.id==='pack') dg['8']=1; else if(x.id==='place') dg['9']=1; else if(x.id==='junk') dg['7']=1;
+  else texts.push(x.name);
+ });
+ var ca=countyOf(d.from), cb=countyOf(d.to); if(ca&&cb&&ca!==cb) dg['6']=1;
+ var a1=areaOf(d.from)||ca.replace(/[縣市]$/,''), a2=areaOf(d.to)||cb.replace(/[縣市]$/,'');
+ var ff=String(d.fromFloor||''), tf=String(d.toFloor||'');
+ var code=Object.keys(dg).sort().join('');
+ var head='';
+ if(code){ head=(mv&&!mv.half&&mv.trips>=2?mv.trips+'×':'')+code+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
+ var parts=[(d.timeV||'待補')==='待補'?'(待確)':'', head, d.name.trim()].concat(texts).concat([d.src||'']).filter(Boolean);
+ return parts.join(' ');
+}
 function qty(l){ var t=String(l.q==null?'':l.q).trim(); return /^\d+$/.test(t)?parseInt(t,10):1; }
 function calcItems(d){
  var out=[];
  defs.forEach(function(x){
   if(!d.on[x.id]) return;
   var v=d.v[x.id];
-  if(x.type==='truck') out.push({id:x.id,name:x.name,sub:'每車 '+fm(v.truck)+' × 預估 '+v.trips+' 車（實際車趟數當天看現場確認）',amt:v.truck*v.trips});
+  if(x.type==='truck'){ if(v.half) out.push({id:x.id,name:x.name,sub:'半車（東西少；實際車趟數當天看現場確認）',amt:v.truck}); else out.push({id:x.id,name:x.name,sub:'每車 '+fm(v.truck)+' × 預估 '+v.trips+' 車（實際車趟數當天看現場確認）',amt:v.truck*v.trips}); }
   else if(x.type==='time'){
    var extra=v.est>v.hrs?Math.ceil(v.est-v.hrs)*v.over:0;
    out.push({id:x.id,name:x.name,sub:fm(v.price)+'／'+v.hrs+' 小時，超過每小時 '+fm(v.over).replace('NT$ ','')+(v.est>v.hrs?'；預估 '+v.est+' 小時，含超時 '+fm(extra):''),amt:v.price+extra});
@@ -160,7 +181,8 @@ function renderApp(){
  +'<input id="f_name" placeholder="客人姓名" value="'+esc(d.name)+'">'
  +'<div class="row2"><input type="date" id="f_dateV" value="'+esc(d.dateV)+'" aria-label="搬家日期"><select id="f_timeV" aria-label="時間">'+SLOTS.map(function(x){return '<option value="'+x+'"'+((d.timeV||'待補')===x?' selected':'')+'>'+(x==='待補'?'時間待補':x)+'</option>'}).join('')+'</select></div>'
  +'<input id="f_from" placeholder="舊址（區域、路名）" value="'+esc(d.from)+'">'+elevRow('from',d)
- +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)+'</section>';
+ +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)
+ +'<div class="row"><span class="muted">來源</span>'+SRC.map(function(k){return '<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+k+'">'+k+'</button>'}).join('')+'<span class="muted">（客人看不到）</span></div></section>';
  h+='<section><div class="sp"><h2>服務項目（點一下勾選）</h2><button class="btn sm sec" id="mng">'+(manage?'完成':'管理項目')+'</button></div>';
  if(manage){
   h+='<div class="box">在這裡可以改名稱、改計價方式、刪除，或新增自己的項目。</div>';
@@ -181,7 +203,7 @@ function renderApp(){
   defs.forEach(function(x){
    if(!d.on[x.id]) return; any=true; var v=d.v[x.id], k=x.id;
    h+='<div class="card"><b>'+esc(x.name)+'</b>';
-   if(x.type==='truck') h+='<div class="row"><input id="t_'+k+'" data-f="truck" data-k="'+k+'" inputmode="numeric" value="'+v.truck+'" style="width:110px"><span class="muted">元／車 × 預估</span><input id="r_'+k+'" data-f="trips" data-k="'+k+'" inputmode="numeric" value="'+v.trips+'" style="width:56px"><span class="muted">車</span></div><div class="sp"><span class="muted">小計</span><b data-isub="'+k+'">'+fm(v.truck*v.trips)+'</b></div>';
+   if(x.type==='truck') h+='<div class="row"><input id="t_'+k+'" data-f="truck" data-k="'+k+'" inputmode="numeric" value="'+v.truck+'" style="width:110px"><span class="muted">元／車 × 預估</span><input id="r_'+k+'" data-f="trips" data-k="'+k+'" inputmode="numeric" value="'+v.trips+'" style="width:56px"><span class="muted">車</span></div><button type="button" class="chip'+(v.half?' on':'')+'" data-half="'+k+'">'+(v.half?'✓ ':'')+'半車（東西很少，代號不加 0）</button><div class="sp"><span class="muted">小計'+(v.half?'（半車：上面「元／車」填半車價）':'')+'</span><b data-isub="'+k+'">'+fm(v.half?v.truck:v.truck*v.trips)+'</b></div>';
    else if(x.type==='time') h+='<div class="muted">基本價與時數、超時費可在這裡改</div><div class="row"><input id="p_'+k+'" data-f="price" data-k="'+k+'" inputmode="numeric" value="'+v.price+'" style="width:96px"><span class="muted">元／</span><input id="h_'+k+'" data-f="hrs" data-k="'+k+'" inputmode="numeric" value="'+v.hrs+'" style="width:56px"><span class="muted">小時</span></div>'
     +'<div class="row"><span class="muted">超時每小時</span><input id="o_'+k+'" data-f="over" data-k="'+k+'" inputmode="numeric" value="'+v.over+'" style="width:96px"><span class="muted">元</span></div>'
     +'<div class="row"><span class="muted">預估共</span><input id="e_'+k+'" data-f="est" data-k="'+k+'" inputmode="numeric" value="'+v.est+'" style="width:56px"><span class="muted">小時</span><span style="flex:1"></span><b data-isub="'+k+'">'+fm(v.price+(v.est>v.hrs?Math.ceil(v.est-v.hrs)*v.over:0))+'</b></div>';
@@ -225,6 +247,8 @@ function bindApp(){
  if($('doParse')) $('doParse').onclick=function(){ d._pmsg=parsePaste($('paste').value); renderApp(); };
  if($('f_disc')) $('f_disc').oninput=function(){d.disc=n(this.value); rk('f_disc')};
  rootEl.querySelectorAll('[data-f]').forEach(function(el){ el.oninput=function(){ var v=d.v[el.getAttribute('data-k')], f=el.getAttribute('data-f'); v[f]=n(el.value); if(f==='trips'&&v.trips<1)v.trips=1; if(f==='hrs'&&v.est<v.hrs)v.est=v.hrs; rk(el.id)}; });
+ rootEl.querySelectorAll('[data-half]').forEach(function(b){ b.onclick=function(){ var v=d.v[b.getAttribute('data-half')]; v.half=!v.half; renderApp(); }; });
+ rootEl.querySelectorAll('[data-src]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-src'); d.src=(d.src===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-chip]').forEach(function(b){ b.onclick=function(){var k=b.getAttribute('data-chip'); d.on[k]=!d.on[k]; renderApp()}; });
  rootEl.querySelectorAll('[data-ln]').forEach(function(el){ el.oninput=function(){var p=el.getAttribute('data-ln').split('|'); d.v[p[0]].lines[+p[1]].n=el.value}; });
  rootEl.querySelectorAll('[data-lq]').forEach(function(el){ el.oninput=function(){var p=el.getAttribute('data-lq').split('|'); d.v[p[0]].lines[+p[1]].q=el.value; rk(el.id)}; });
@@ -251,7 +275,7 @@ function bindApp(){
   var tok=randToken();
   var q={no:'Q-'+ymd0+'-'+String(cnt).padStart(2,'0'),id:tok,token:tok,
    name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),pay:getPay(),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,
-   status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d)};
+   status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d),src:d.src||'',calTitle:buildTitle(d)};
   Promise.resolve(api.saveQuote(q)).catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); screen='list'; openId=q.id; renderApp(); toast2('已產生報價單連結');
  };
 }
@@ -267,6 +291,7 @@ function qCard(q){
  var h='<section class="card qrow" style="margin:8px 12px;padding:10px 12px;gap:6px"><div class="sp" data-tg="'+q.id+'" style="cursor:pointer"><div style="min-width:0"><b>'+esc(q.name)+'</b><div class="muted" style="line-height:1.4">'+esc(q.date)+'・'+fm(q.total)+'</div></div><span class="pill '+pc+'" style="white-space:nowrap">'+st+(op?' ▲':' ▼')+'</span></div>';
  if(op){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
+  +(q.calTitle?'<div class="box">行事曆標題：<b>'+esc(q.calTitle)+'</b></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'

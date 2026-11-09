@@ -711,11 +711,15 @@ async function quoteToCalendar() {
       const dt = quoteDate(q.date);
       const area = x => (String(x || '').match(/[\u4e00-\u9fa5]{1,3}[區鄉鎮市]/) || [''])[0];
       const route = [area(q.from), area(q.to)].filter(Boolean).join('');
-      const title = [route, q.name].filter(Boolean).join(' ');
+      const title = q.calTitle || [route, q.name].filter(Boolean).join(' ');
       const note = ['報價單 ' + (q.no || ''), '舊址：' + (q.from || ''), '新址：' + (q.to || ''), '總價 NT$' + q.total + '，訂金 NT$' + q.dep, q.sig ? '客人已簽名' : '', q.custNote ? '客人備註：' + q.custNote : '', q.date ? '客人填的日期：' + q.date : ''].filter(Boolean).join('\n');
       if (!dt) { await db.quoteUpdate(q.id, { calDone: true, calFail: true }); toast('「' + q.name + '」確認了，但日期看不懂，請自己加行程'); continue; }
       const endT = dt.time ? (() => { const [h, mi] = dt.time.split(':').map(Number); return String((h + 1) % 24).padStart(2, '0') + ':' + String(mi).padStart(2, '0'); })() : '';
-      await db.add('events', { type: 'event', title, date: dt.date, endDate: '', allDay: !dt.time, time: dt.time, endTime: endT, repeat: '', label: 0, note, lead: '', done: false, amount: 0, source: '報價單', quoteId: q.id });
+      const rec = { type: 'event', title, date: dt.date, endDate: '', allDay: !dt.time, time: dt.time, endTime: endT, repeat: '', label: 0, note, lead: '', done: false, amount: 0, source: '報價單', quoteId: q.id };
+      // 標題是代號寫法就當成工作（跟行事曆手動輸入一樣；「(待確)」不影響判斷）
+      const pj = parseLine(title.replace(/^\(待確\)\s*/, ''), { now: new Date(dt.date + 'T00:00:00'), categories: L.categories() });
+      if (pj?.event?.type === 'job') { const j = pj.event; Object.assign(rec, { type: 'job', codeRaw: j.codeRaw, truck: j.truck, services: j.services, route: j.route, from: j.from, to: j.to, fromFloor: j.fromFloor, toFloor: j.toFloor, client: j.client, contact: j.contact }); }
+      await db.add('events', rec);
       await db.quoteUpdate(q.id, { calDone: true });
       toast('「' + q.name + '」確認了，已加進行事曆 ' + dt.date);
     } catch (e) { calBusy.delete(q.id); }
