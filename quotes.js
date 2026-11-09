@@ -68,8 +68,20 @@ function readDateText(txt){
 
 var SRC_DEF=['地','回','賴','粉'], srcManage=false;
 function srcList(){ var l=api.settings().quoteSrc; return (l&&l.length)?l:SRC_DEF; }
-function countyOf(a){ var m=String(a||'').replace(/臺/g,'台').match(/^\s*([一-龥]{2,3}[縣市])/); return m?m[1]:''; }
-function areaOf(a){ var t=String(a||'').replace(/臺/g,'台').replace(/^\s*[一-龥]{2,3}[縣市]/,''), m=t.match(/([一-龥]{1,3}?)([區鄉鎮])/); if(!m) return ''; return m[1].length===1?m[1]+m[2]:m[1]; }
+var COUNTIES=['新北','台北','桃園','台中','台南','高雄','基隆','新竹','苗栗','彰化','南投','雲林','嘉義','屏東','宜蘭','花蓮','台東','澎湖','金門','連江'];
+var TC_AREAS=['中區','東區','南區','西區','北區','北屯','西屯','南屯','太平','大里','霧峰','烏日','豐原','后里','石岡','東勢','和平','新社','潭子','大雅','神岡','大肚','沙鹿','龍井','梧棲','清水','大甲','外埔','大安'];
+function countyOf(a){
+ var t=String(a||'').replace(/臺/g,'台');
+ for(var i=0;i<COUNTIES.length;i++){ var k=COUNTIES[i], j=t.indexOf(k); if(j>=0){ var suf=t.charAt(j+k.length); return k+((k==='新竹'||k==='嘉義')&&(suf==='縣'||suf==='市')?suf:''); } }
+ for(var m=0;m<TC_AREAS.length;m++){ var ar=TC_AREAS[m]; if(ar.length===2&&ar.charAt(1)!=='區'? t.indexOf(ar)>=0 : t.indexOf(ar)>=0) return '台中'; }
+ return '';
+}
+function areaOf(a){
+ var t=String(a||'').replace(/臺/g,'台').replace(/^\s*[一-龥]{2,3}[縣市]/,''), m=t.match(/([一-龥]{1,3}?)([區鄉鎮])/);
+ if(m) return m[1].length===1?m[1]+m[2]:m[1];
+ for(var i=0;i<TC_AREAS.length;i++){ if(t.indexOf(TC_AREAS[i])>=0) return TC_AREAS[i]; }
+ return '';
+}
 function buildTitle(d){
  var dg={}, texts=[], mv=null;
  defs.forEach(function(x){
@@ -294,7 +306,7 @@ function qCard(q){
  var h='<section class="card qrow" style="margin:8px 12px;padding:10px 12px;gap:6px"><div class="sp" data-tg="'+q.id+'" style="cursor:pointer"><div style="min-width:0"><b>'+esc(q.name)+'</b><div class="muted" style="line-height:1.4">'+esc(q.date)+'・'+fm(q.total)+'</div></div><span class="pill '+pc+'" style="white-space:nowrap">'+st+(op?' ▲':' ▼')+'</span></div>';
  if(op){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
-  +(q.calTitle?'<div class="box">行事曆標題：<b>'+esc(q.calTitle)+'</b></div>':'')
+  +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
@@ -323,6 +335,7 @@ function renderList(){
  if($('tgVoid')) $('tgVoid').onclick=function(){showVoid=!showVoid;renderList()};
  ['bank','acct','holder'].forEach(function(k){ var el=$('pay_'+k); if(el) el.oninput=function(){ var p=getPay(); p=Object.assign({},p); p[k]=this.value; clearTimeout(payT); payT=setTimeout(function(){setPay(p)},700); }; });
  $('newQ').onclick=function(){draft=newDraft();screen='new';manage=false;openId=null;renderApp()};
+ rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim()})).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
  rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); var url=BASE+q.token; try{ navigator.clipboard.writeText(url).then(function(){toast2('已複製連結，貼到 LINE 給客人')},function(){toast2('複製失敗，請手動長按連結複製')}); }catch(e){ toast2('複製失敗，請手動長按連結複製'); } }});
