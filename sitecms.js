@@ -94,7 +94,7 @@ function bind() {
 }
 
 // 貼文分類：列出粉專最近的影片與貼文，每則可指定分類。存在 Firestore 公開文件 public/feedcats（選了就立刻生效，官網約 15 分鐘內更新）
-const CAT_NAMES = ['搬家', '清運', '清潔', '倉儲', '企業'];
+const BASE_CATS = ['一條龍', '搬家', '清運', '清潔', '倉儲', '企業'];
 const catsDocUrl = 'https://firestore.googleapis.com/v1/projects/moving-app-ac208/databases/(default)/documents/public/feedcats';
 async function loadCats() {
   const box = document.querySelector('#cms-cats'); if (!box) return;
@@ -104,23 +104,48 @@ async function loadCats() {
     if (!j.ok) throw new Error(j.error || 'feed');
     let map = {};
     try { map = JSON.parse((d.fields && d.fields.json && d.fields.json.stringValue) || '{}'); } catch (e) { map = {}; }
-    const RULES = [['清運', /清運|垃圾|回收|廢棄|二手/], ['清潔', /清潔/], ['倉儲', /倉庫|倉儲|存放|儲存/], ['企業', /企業|公司行號|合作廠商|辦公室/]];
-    const guess = t => { const m = String(t).match(/#(搬家|清運|清潔|倉儲|企業)/); if (m) return m[1]; for (const [n, re] of RULES) if (re.test(t)) return n; return '搬家'; };
-    const row = x => {
-      const lines = String(x.text).replace(/#(搬家|清運|清潔|倉儲|企業)\s*/g, '').trim().split('\n').filter(Boolean);
-      const cur = map[x.id] || '';
-      return `<div class="cms-catrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(feedUrl + '/img/' + x.id)}" alt="" loading="lazy"></a>
-        <div class="cms-cattxt"><b>${esc((lines[0] || '').slice(0, 30))}</b><small>${esc((lines[1] || '').slice(0, 40))}</small><small>${esc(String(x.t).slice(0, 10))}</small></div>
-        <select data-cat-id="${esc(x.id)}"><option value="">自動（${guess(x.text)}）</option>${CAT_NAMES.map(n => `<option ${n === cur ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
-    };
-    box.innerHTML = '<div class="cms-catlist"><h5>短影片</h5>' + j.videos.map(row).join('') + '<h5>貼文（案例）</h5>' + j.cases.map(row).join('') + '</div>';
-    box.onchange = async e => {
-      const el = e.target; if (!el.dataset.catId) return;
-      if (el.value) map[el.dataset.catId] = el.value; else delete map[el.dataset.catId];
+    if (!Array.isArray(map._cats)) map._cats = [];          // 自己新增的分類名稱
+    const names = () => BASE_CATS.concat(map._cats.filter(n => !BASE_CATS.includes(n)));
+    const RULES = [['一條龍', /一條龍/], ['清運', /清運|垃圾|回收|廢棄|二手/], ['清潔', /清潔/], ['倉儲', /倉庫|倉儲|存放|儲存/], ['企業', /企業|公司行號|合作廠商|辦公室/]];
+    const tagRe = () => new RegExp('#(' + names().join('|') + ')\\s*', 'g');
+    const guess = t => { const m = String(t).match(new RegExp('#(' + names().join('|') + ')')); if (m) return m[1]; for (const [n, re] of RULES) if (re.test(t)) return n; return '搬家'; };
+    const persist = async () => {
       try {
         const ok = await db.setPublic('feedcats', { json: JSON.stringify(map), updatedAt: new Date().toISOString() });
         api.toast(ok ? '分類已存好' : '要先登入雲端才能存分類');
       } catch (err) { api.toast('分類存失敗：' + err.message); }
+    };
+    const row = x => {
+      const lines = String(x.text).replace(tagRe(), '').trim().split('\n').filter(Boolean);
+      const cur = map[x.id] || '';
+      return `<div class="cms-catrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(feedUrl + '/img/' + x.id)}" alt="" loading="lazy"></a>
+        <div class="cms-cattxt"><b>${esc((lines[0] || '').slice(0, 30))}</b><small>${esc((lines[1] || '').slice(0, 40))}</small><small>${esc(String(x.t).slice(0, 10))}</small></div>
+        <select data-cat-id="${esc(x.id)}"><option value="">自動（${esc(guess(x.text))}）</option>${names().map(n => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
+    };
+    const draw = () => {
+      box.innerHTML = `<div class="cms-catadd"><input id="cms-newcat" maxlength="8" placeholder="新增分類，例如：套房"><button type="button" data-cat-add>新增</button></div>
+        ${map._cats.length ? `<div class="cms-catmine">我新增的：${map._cats.map(n => `<span>${esc(n)} <button type="button" data-cat-del="${esc(n)}" aria-label="刪除${esc(n)}">✕</button></span>`).join('')}</div>` : ''}
+        <div class="cms-catlist"><h5>短影片</h5>${j.videos.map(row).join('')}<h5>貼文（案例）</h5>${j.cases.map(row).join('')}</div>`;
+    };
+    draw();
+    box.onchange = async e => {
+      const el = e.target; if (!el.dataset.catId) return;
+      if (el.value) map[el.dataset.catId] = el.value; else delete map[el.dataset.catId];
+      await persist();
+    };
+    box.onclick = async e => {
+      if (e.target.hasAttribute('data-cat-add')) {
+        const inp = box.querySelector('#cms-newcat'), n = inp.value.trim().replace(/[#\s|]/g, '');
+        if (!n) return;
+        if (!names().includes(n)) map._cats.push(n);
+        await persist(); draw(); api.toast('已新增「' + n + '」，到下面的貼文下拉選單就能選');
+      }
+      const del = e.target.getAttribute && e.target.getAttribute('data-cat-del');
+      if (del) {
+        map._cats = map._cats.filter(n => n !== del);
+        for (const k of Object.keys(map)) if (k !== '_cats' && map[k] === del) delete map[k];
+        await persist(); draw();
+      }
     };
   } catch (e) { box.textContent = '讀不到粉專貼文（' + e.message + '），稍後再試。'; }
 }
