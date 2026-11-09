@@ -38,7 +38,7 @@ function defaultVal(d){
  return {amt:0};
 }
 function newDraft(){
- var d={raw:'',src:'',name:'',date:'',dateV:'',timeV:'待補',from:'',fromFloor:'',fromElev:'有',to:'',toFloor:'',toElev:'有',on:{},v:{},disc:0,note:''};
+ var d={raw:'',ctc:'',src:'',name:'',date:'',dateV:'',timeV:'待補',from:'',fromFloor:'',fromElev:'有',to:'',toFloor:'',toElev:'有',on:{},v:{},disc:0,note:''};
  defs.forEach(function(x){d.v[x.id]=defaultVal(x)});
  return d;
 }
@@ -66,7 +66,8 @@ function readDateText(txt){
  return r;
 }
 
-var SRC_DEF=['地','回','賴','粉'], srcManage=false;
+var SRC_DEF=['地','回'], CTC=['賴','粉','L'], srcManage=false;
+function tailOf(c,r){ return (c||'')+(r?'.'+r:''); }
 function srcList(){ var l=api.settings().quoteSrc; return (l&&l.length)?l:SRC_DEF; }
 var COUNTIES=['新北','台北','桃園','台中','台南','高雄','基隆','新竹','苗栗','彰化','南投','雲林','嘉義','屏東','宜蘭','花蓮','台東','澎湖','金門','連江'];
 var TC_AREAS=['中區','東區','南區','西區','北區','北屯','西屯','南屯','太平','大里','霧峰','烏日','豐原','后里','石岡','東勢','和平','新社','潭子','大雅','神岡','大肚','沙鹿','龍井','梧棲','清水','大甲','外埔','大安'];
@@ -82,7 +83,7 @@ function areaOf(a){
  for(var i=0;i<TC_AREAS.length;i++){ if(t.indexOf(TC_AREAS[i])>=0) return TC_AREAS[i]; }
  return '';
 }
-function buildTitle(d){
+function buildTitle(d,noTail){
  var dg={}, texts=[], mv=null;
  defs.forEach(function(x){
   if(!d.on[x.id]) return;
@@ -96,7 +97,7 @@ function buildTitle(d){
  var code=Object.keys(dg).sort().join('');
  var head='';
  var tx=texts.join(''); if(code||tx){ head=(mv&&mv.trips>1?mv.trips+'×':'')+code+tx+'.'+a1+a2+(ff!==''&&tf!==''?ff+'.'+tf:''); }
- var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat([d.src||'']).filter(Boolean);
+ var parts=[/^\d{2}:\d{2}$/.test(d.timeV||'')?'':'(待確)', head, d.name.trim()].concat([noTail?'':tailOf(d.ctc,d.src)]).filter(Boolean);
  return parts.join(' ');
 }
 function qty(l){ var t=String(l.q==null?'':l.q).trim(); return /^\d+$/.test(t)?parseInt(t,10):1; }
@@ -195,7 +196,8 @@ function renderApp(){
  +'<div class="row2"><input type="date" id="f_dateV" value="'+esc(d.dateV)+'" aria-label="搬家日期"><select id="f_timeV" aria-label="時間">'+SLOTS.map(function(x){return '<option value="'+x+'"'+((d.timeV||'待補')===x?' selected':'')+'>'+(x==='待補'?'時間待補':x)+'</option>'}).join('')+'</select></div>'
  +'<input id="f_from" placeholder="舊址（區域、路名）" value="'+esc(d.from)+'">'+elevRow('from',d)
  +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)
- +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return srcManage?'<button type="button" class="chip" data-srcdel="'+esc(k)+'" style="color:#B91C1C">'+esc(k)+' ✕</button>':'<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋</button><button type="button" class="chip" id="srcMng">'+(srcManage?'完成':'管理')+'</button></div><div class="muted">來源客人看不到，只會寫在行事曆標題最後面。</div></section>';
+ +'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(d.ctc===k?' on':'')+'" data-ctc="'+k+'">'+(k==='L'?'L（公司LINE）':k==='賴'?'賴（個人LINE）':'粉（粉專）')+'</button>'}).join('')+'</div>'
+ +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return srcManage?'<button type="button" class="chip" data-srcdel="'+esc(k)+'" style="color:#B91C1C">'+esc(k)+' ✕</button>':'<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋</button><button type="button" class="chip" id="srcMng">'+(srcManage?'完成':'管理')+'</button></div><div class="muted">聯絡＝在哪裡回客人；來源＝客人怎麼找到你。客人看不到，只會寫在行事曆標題最後面（例：賴.回）。</div></section>';
  h+='<section><div class="sp"><h2>服務項目（點一下勾選）</h2><button class="btn sm sec" id="mng">'+(manage?'完成':'管理項目')+'</button></div>';
  if(manage){
   h+='<div class="box">在這裡可以改名稱、改計價方式、刪除，或新增自己的項目。</div>';
@@ -263,6 +265,7 @@ function bindApp(){
   if($('srcAdd')) $('srcAdd').onclick=function(){ var v=prompt('新增來源（例如：社、AI）'); v=(v||'').trim(); if(!v) return; var l=srcList().slice(); if(l.indexOf(v)<0) l.push(v); api.saveSettings({quoteSrc:l}); d.src=v; renderApp(); };
  if($('srcMng')) $('srcMng').onclick=function(){ srcManage=!srcManage; renderApp(); };
  rootEl.querySelectorAll('[data-srcdel]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-srcdel'); api.saveSettings({quoteSrc:srcList().filter(function(x){return x!==k})}); if(d.src===k) d.src=''; renderApp(); }; });
+ rootEl.querySelectorAll('[data-ctc]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-ctc'); d.ctc=(d.ctc===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-src]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-src'); d.src=(d.src===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-chip]').forEach(function(b){ b.onclick=function(){var k=b.getAttribute('data-chip'); d.on[k]=!d.on[k]; renderApp()}; });
  rootEl.querySelectorAll('[data-ln]').forEach(function(el){ el.oninput=function(){var p=el.getAttribute('data-ln').split('|'); d.v[p[0]].lines[+p[1]].n=el.value}; });
@@ -290,7 +293,7 @@ function bindApp(){
   var tok=randToken();
   var q={no:'Q-'+ymd0+'-'+String(cnt).padStart(2,'0'),id:tok,token:tok,
    name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),pay:getPay(),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,
-   status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d),src:d.src||'',calTitle:buildTitle(d)};
+   status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d)};
   Promise.resolve(api.saveQuote(q)).catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); screen='list'; openId=q.id; renderApp(); toast2('已產生報價單連結');
  };
 }
@@ -308,7 +311,7 @@ function qCard(q){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
   +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
-  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'</div>':'')
+  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(q.ctc===k?' on':'')+'" data-qctc="'+q.id+'|'+k+'">'+k+'</button>'}).join('')+'</div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(k)+'</button>'}).join('')+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
   +(q.status!=='作廢'?'<button class="btn sm sec" data-void="'+q.id+'">作廢</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';
@@ -336,8 +339,11 @@ function renderList(){
  if($('tgVoid')) $('tgVoid').onclick=function(){showVoid=!showVoid;renderList()};
  ['bank','acct','holder'].forEach(function(k){ var el=$('pay_'+k); if(el) el.oninput=function(){ var p=getPay(); p=Object.assign({},p); p[k]=this.value; clearTimeout(payT); payT=setTimeout(function(){setPay(p)},700); }; });
  $('newQ').onclick=function(){draft=newDraft();screen='new';manage=false;openId=null;renderApp()};
- rootEl.querySelectorAll('[data-qsrc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qsrc').split('|'), q=find(p[0]); if(!q) return; var k=(q.src===p[1]?'':p[1]), t=String(q.calTitle||''); if(q.src&&t.slice(-(q.src.length+1))===' '+q.src) t=t.slice(0,-(q.src.length+1)); if(k) t=t+' '+k; Promise.resolve(api.updateQuote(q.token,{src:k,calTitle:t})).then(function(){ return api.calSync?api.calSync(q.id,t):0; }).then(function(){ toast2('來源已更新，行事曆同步'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
- rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim()})).then(function(){ return api.calSync?api.calSync(q.id,el.value.trim()):0; }).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
+ function baseOf(q){ if(q.calBase!==undefined) return q.calBase; var t=String(q.calTitle||''), tl=tailOf(q.ctc,q.src); if(tl&&t.slice(-(tl.length+1))===' '+tl) t=t.slice(0,-(tl.length+1)); else if(q.src&&t.slice(-(q.src.length+1))===' '+q.src) t=t.slice(0,-(q.src.length+1)); return t; }
+ function setTail(q,c,r){ var base=baseOf(q), tl=tailOf(c,r), t=base+(tl?' '+tl:''); Promise.resolve(api.updateQuote(q.token,{ctc:c,src:r,calBase:base,calTitle:t})).then(function(){ return api.calSync?api.calSync(q.id,t):0; }).then(function(){ toast2('已更新，行事曆同步'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
+ rootEl.querySelectorAll('[data-qsrc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qsrc').split('|'), q=find(p[0]); if(q) setTail(q,q.ctc||'',q.src===p[1]?'':p[1]); }; });
+ rootEl.querySelectorAll('[data-qctc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qctc').split('|'), q=find(p[0]); if(q) setTail(q,q.ctc===p[1]?'':p[1],q.src||''); }; });
+ rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim(),calBase:(function(){var t=el.value.trim(),tl=tailOf(q.ctc,q.src); return (tl&&t.slice(-(tl.length+1))===' '+tl)?t.slice(0,-(tl.length+1)):t;})()})).then(function(){ return api.calSync?api.calSync(q.id,el.value.trim()):0; }).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
  rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); var url=BASE+q.token; try{ navigator.clipboard.writeText(url).then(function(){toast2('已複製連結，貼到 LINE 給客人')},function(){toast2('複製失敗，請手動長按連結複製')}); }catch(e){ toast2('複製失敗，請手動長按連結複製'); } }});

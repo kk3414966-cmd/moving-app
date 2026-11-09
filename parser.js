@@ -226,13 +226,16 @@ export function parseLine(input, opts = {}) {
     const code = parseCode(m[1]);
     const route = parseRoute(m[2]);
     const parts = m[3].trim().split(/\s+/).filter(Boolean);
-    let contact = '';
-    if (parts.length && (CONTACTS[parts[parts.length - 1]] || /^\d{8,10}$/.test(parts[parts.length - 1]))) contact = parts.pop();
+    let contact = '', srcKey = '';
+    // 最後一段：「聯絡.來源」例如 賴.回（聯絡位置.客戶來源）；也可以只有聯絡（賴）或只有「.來源」
+    const lastP = parts[parts.length - 1] || '', mm = lastP.match(/^([賴粉L]|\d{8,10})?\.([^\s.]+)$/);
+    if (mm && (mm[1] || parts.length > 1)) { parts.pop(); contact = mm[1] || ''; srcKey = mm[2]; }
+    else if (parts.length && (CONTACTS[lastP] || /^\d{8,10}$/.test(lastP))) contact = parts.pop();
     out.kind = 'job';
     out.event = {
       type: 'job', date, time: t.time, title: lead ? fullTitle : rest, codeRaw: code.code, truck: code.truck, services: code.services,
       route: route.route, from: route.from, to: route.to, fromFloor: route.fromFloor, toFloor: route.toFloor,
-      client: parts.join(' '), contact: CONTACTS[contact] || contact, done: !!lead, amount: lead ? lead.amount : 0,
+      client: parts.join(' '), contact: CONTACTS[contact] || contact, srcKey, done: !!lead, amount: lead ? lead.amount : 0,
     };
     if (by) out.event.by = by;
     if (lead) out.txs.push({ type: 'income', amount: lead.amount, category: '搬家', work: true, matchJob: true, note: rest });
