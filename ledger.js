@@ -138,6 +138,7 @@ export async function saveParsed(p, source = '手動') {
   let eventId = null;
   if (p.event) {
     const ev = { ...p.event, raw: p.raw, source };
+    if (!ev.lead) { const ld = leadFromTitle(ev.title || p.raw); if (ld) ev.lead = ld; }
     if (ev.label == null) {
       const a = autoLabels(), workCost = p.txs.some(t => t.type === 'expense' && catOf(t.category)?.work);
       ev.label = ev.type === 'job' ? a.job : workCost ? a.workTx : p.txs.length ? a.tx : a.note;
@@ -241,5 +242,8 @@ export function findDuplicate(tx, skip = new Set()) {
 
 // 客源選項（可在設定裡自己改名稱）
 export const DEFAULT_LEADS = ['回頭客', '粉專', 'Google 地圖', 'Google 廣告', '社團', '朋友介紹', 'AI 推薦', '其他'];
+// 標題最後的來源字（地／回／粉）→ 客源。賴＝LINE 是回覆管道，不是客源，所以不填。
+export const DEFAULT_LEAD_MAP = { '地': 'Google 地圖', '回': '回頭客', '粉': '粉專' };
+export const leadFromTitle = t => { const w = String(t || '').trim().split(/\s+/); const k = w[w.length - 1]; const m = db.settings().leadMap || DEFAULT_LEAD_MAP; return (w.length > 1 && k && m[k]) || ''; };
 export const leads = () => db.settings().leads || DEFAULT_LEADS;
 export const leadOptions = cur => { const ls = leads(); const all = cur && !ls.includes(cur) ? [...ls, cur] : ls; return `<option value="">（未填）</option>${all.map(x => `<option ${x === cur ? 'selected' : ''}>${x.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('')}`; };

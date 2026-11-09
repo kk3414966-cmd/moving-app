@@ -242,7 +242,7 @@ export function openForm(id, date, copyFrom) {
     else if (!endT || dt(endD, endT) < dt(d.date, d.time)) { const o = plusHour(d.date, d.time); endD = o.date; endT = o.time; }
     const rec = {
       title: d.title.trim(), date: d.date, endDate: endD > d.date ? endD : '', allDay: f.allDay.checked,
-      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : endT, repeat: d.repeat, label: +d.label, note: d.note, lead: d.lead || '',
+      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : endT, repeat: d.repeat, label: +d.label, note: d.note, lead: d.lead || L.leadFromTitle(d.title) || '',
     };
     const flat = rec.title.replace(/\s*\n\s*/g, ' '); // 標題打了好幾行：判斷工作代號、金額時當成一行
     // 標題是代號寫法就當成工作（例如 03.西區北區0.3 nam 賴）

@@ -717,6 +717,7 @@ async function quoteToCalendar() {
       const endT = dt.time ? (() => { const [h, mi] = dt.time.split(':').map(Number); return String((h + 1) % 24).padStart(2, '0') + ':' + String(mi).padStart(2, '0'); })() : '';
       const rec = { type: 'event', title, date: dt.date, endDate: '', allDay: !dt.time, time: dt.time, endTime: endT, repeat: '', label: 0, note, lead: '', done: false, amount: 0, source: '報價單', quoteId: q.id };
       Object.assign(rec, jobFields(title, dt.date));
+      { const ld = L.leadFromTitle(title); if (ld) rec.lead = ld; }
       await db.add('events', rec);
       await db.quoteUpdate(q.id, { calDone: true });
       toast('「' + q.name + '」確認了，已加進行事曆 ' + dt.date);
@@ -734,7 +735,7 @@ function jobFields(title, date) {
 async function quoteEvents(id) { await db.ensureWhere('events', 'quoteId', id); return db.all('events').filter(e => e.quoteId === id); }
 // 報價單改了標題（或來源）→ 已經在行事曆的行程跟著改
 async function quoteCalSync(id, title) {
-  for (const ev of await quoteEvents(id)) await db.update('events', ev.id, { title, ...jobFields(title, ev.date) });
+  for (const ev of await quoteEvents(id)) await db.update('events', ev.id, { title, ...jobFields(title, ev.date), ...(L.leadFromTitle(title) ? { lead: L.leadFromTitle(title) } : {}) });
 }
 // 刪報價單 → 行事曆上這張報價單加的行程一起消失
 async function quoteDeleteAll(id) {
