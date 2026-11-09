@@ -412,3 +412,5 @@ button.sm { padding: 3px 10px; font-size: 13px; white-space: nowrap; }
 .drag-ghost { position: fixed; z-index: 30; pointer-events: none; transform: translate(-50%, -140%); max-width: 70vw; padding: 6px 12px; border-radius: 8px; background: #2ecc87; color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 4px 14px #0004; }
 .tc.dropt { background: #cfeee0 !important; outline: 2px solid #2ecc87; outline-offset: -2px; }
 .wrow.dropt { background: #cfeee0 !important; }
+.lead-pick { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.lead-pick select { flex: 1; }

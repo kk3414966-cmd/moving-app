@@ -159,6 +159,8 @@ export function openDay(date) {
 }
 
 // ================= 行程內容 =================
+export const LEADS = ['回頭客', '粉專', 'Google 地圖', 'Google 廣告', '社團', '朋友介紹', 'AI 推薦', '其他'];
+
 export function openEvent(id) {
   const e = db.get('events', id); if (!e) return;
   const code = L.codes(), lb = L.labelOf(L.eventLabel(e));
@@ -169,6 +171,7 @@ export function openEvent(id) {
     <p class="ev-when">${range}</p>
     <div class="ev-meta"><span><i style="background:${lb.color}"></i>${esc(lb.name)}</span>${e.repeat ? `<span>🔁 ${REPEAT[e.repeat] || e.repeat}</span>` : ''}</div>
     ${e.type === 'job' ? `<p class="muted">${e.truck} 噸｜${(e.services || []).map(s => esc(code[s] || s)).join('、')}${e.from ? `｜${esc(e.from)}→${esc(e.to)}` : ''}${e.fromFloor !== '' && e.fromFloor != null ? `｜樓層 ${esc(e.fromFloor)}→${esc(e.toFloor)}` : ''}${e.contact ? '｜' + esc(e.contact) : ''}</p>
+      <label class="lead-pick">客源 <select data-lead="${e.id}"><option value="">（未填）</option>${LEADS.map(x => `<option ${x === e.lead ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
       ${e.done ? `<p><span class="tag ok">實收 ${money(e.amount)}</span></p>` : `<div class="row ${isLate(e) ? 'late' : ''}"><input type="number" inputmode="numeric" placeholder="實收金額" data-amt="${e.id}"><button class="primary" data-c-done="${e.id}">完成</button></div>`}` : ''}
     ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
     <div class="row"><button class="primary" data-c-edit="${e.id}">編輯</button><button data-c-dup="${e.id}">複製行程</button><button data-c-copy="${e.id}">複製文字</button><button class="danger" data-c-del="${e.id}">刪除</button></div>`);
@@ -201,6 +204,7 @@ export function openForm(id, date, copyFrom) {
     <div class="f-row"><span>結束</span><div><input type="date" name="endDate" value="${endO.date}"><span class="tp tm" data-tp="endTime" data-v="${endO.time}"></span></div></div>
     <div class="f-row tm"><span>時制</span><div><button type="button" class="link" data-c-tf>${tfLabel()}</button></div></div>
     <div class="f-row"><span>重複</span><select name="repeat">${Object.entries(REPEAT).map(([v, t]) => `<option value="${v}" ${(e.repeat || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="f-row"><span>客源</span><select name="lead"><option value="">（未填）</option>${LEADS.map(x => `<option ${x === e.lead ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
     <div class="f-row col"><span class="row-between">標籤<button type="button" class="link" data-c-labels>✎ 編輯標籤</button></span><div class="labels">${L.labels().map(l => `<label class="lb"><input type="radio" name="label" value="${l.id}" ${curLabel === l.id ? 'checked' : ''}><i style="background:${l.color}"></i>${esc(l.name || '　')}</label>`).join('')}</div></div>
     <div class="f-row col"><span>備註</span><textarea name="note" rows="6" placeholder="備註">${esc(e.note || '')}</textarea></div>
     ${id ? `<p class="muted">工作完成：在標題最前面加上 $金額（例：$3000 03.西區北區0.3 nam 賴），按保存就會記收入。</p>
@@ -240,7 +244,7 @@ export function openForm(id, date, copyFrom) {
     else if (!endT || dt(endD, endT) < dt(d.date, d.time)) { const o = plusHour(d.date, d.time); endD = o.date; endT = o.time; }
     const rec = {
       title: d.title.trim(), date: d.date, endDate: endD > d.date ? endD : '', allDay: f.allDay.checked,
-      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : endT, repeat: d.repeat, label: +d.label, note: d.note,
+      time: f.allDay.checked ? '' : d.time, endTime: f.allDay.checked ? '' : endT, repeat: d.repeat, label: +d.label, note: d.note, lead: d.lead || '',
     };
     const flat = rec.title.replace(/\s*\n\s*/g, ' '); // 標題打了好幾行：判斷工作代號、金額時當成一行
     // 標題是代號寫法就當成工作（例如 03.西區北區0.3 nam 賴）
@@ -472,3 +476,10 @@ document.addEventListener('mouseup', () => { if (Date.now() - lastTouch > 800) d
 // 拖完放開時瀏覽器會再送一個 click，吃掉它，免得打開當天清單
 window.addEventListener('click', e => { if (Date.now() < suppressUntil) { e.stopPropagation(); e.preventDefault(); } }, true);
 document.addEventListener('contextmenu', e => { if (e.target.closest('#calgrid') && (press || drag)) e.preventDefault(); });
+
+// 客源：在行程詳情選一下就存
+document.addEventListener('change', async e => {
+  const el = e.target.closest?.('[data-lead]'); if (!el) return;
+  await db.update('events', el.dataset.lead, { lead: el.value });
+  C.toast(el.value ? `客源：${el.value}` : '已清除客源'); C.render();
+});
