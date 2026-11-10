@@ -754,6 +754,7 @@ function render() {
       quoteApi = mountQuotes(quoteRoot, {
         settings: db.settings, saveSettings: db.saveSettings,
         quotes: db.quotesAll, saveQuote: db.quoteSave, updateQuote: db.quoteUpdate, leads: L.leads, deleteQuote: quoteDeleteAll, calSync: quoteCalSync,
+        bookings: db.bookingsAll, updateBooking: db.bookingUpdate, deleteBooking: db.bookingDelete,
       });
     } else quoteApi.refresh();
     if (view.firstChild !== quoteRoot) { view.innerHTML = ''; view.appendChild(quoteRoot); }

@@ -301,7 +301,7 @@ function bindApp(){
   var today=new Date(), ymd0=today.getFullYear()+String(today.getMonth()+1).padStart(2,'0')+String(today.getDate()).padStart(2,'0');
   var cnt=api.quotes().filter(function(x){return String(x.no||'').indexOf('Q-'+ymd0)===0}).length+1;
   var tok=d._edit||randToken();
-  var snap=JSON.parse(JSON.stringify(d)); delete snap._edit; delete snap._pmsg;
+  var snap=JSON.parse(JSON.stringify(d)); delete snap._edit; delete snap._pmsg; delete snap._booking;
   if(d._edit){
    var old=find(d._edit); if(!old){ alert2('找不到原本的報價單'); return; }
    var patch={name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d),form:snap,validFrom:new Date().toISOString(),editedAt:new Date().toISOString()};
@@ -311,7 +311,7 @@ function bindApp(){
   var q={no:'Q-'+ymd0+'-'+String(cnt).padStart(2,'0'),id:tok,token:tok,
    name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),pay:getPay(),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,
    status:'未確認',custNote:'',sig:null,at:null,form:snap,validFrom:new Date().toISOString(),boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d)};
-  var saved=Promise.resolve(api.saveQuote(q)); saved.catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); copyOut(q,'msg',saved); screen='list'; openId=q.id; openSet[q.id]=true; renderApp();
+  var saved=Promise.resolve(api.saveQuote(q)); saved.catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); if(d._booking&&api.updateBooking) Promise.resolve(api.updateBooking(d._booking,{status:'quoted',quoteId:q.id})).catch(function(){}); copyOut(q,'msg',saved); screen='list'; openId=q.id; openSet[q.id]=true; renderApp();
  };
 }
 function randToken(){ var a=new Uint8Array(16); (window.crypto||window.msCrypto).getRandomValues(a); return Array.prototype.map.call(a,function(x){return ('0'+x.toString(16)).slice(-2)}).join(''); }
@@ -355,11 +355,49 @@ function qCard(q){
  }
  return h+'</section>';
 }
+var PURGE_MS=9*24*3600*1000; // 3 天有效 + 過期後再留 6 天，之後自動刪除
+var purging={};
+function purgeOld(){
+ api.quotes().forEach(function(q){
+  if(q.status==='已確認'||purging[q.id]) return;
+  var t=Date.parse(q.validFrom||q.createdAt||''); if(isNaN(t)||Date.now()<=t+PURGE_MS) return;
+  purging[q.id]=1; Promise.resolve(api.deleteQuote(q.id)).catch(function(){ delete purging[q.id]; });
+ });
+}
+function bookingOf(bk){ try{ return JSON.parse(bk.json||'{}'); }catch(e){ return {}; } }
+function bookingDraft(bk){
+ var b=bookingOf(bk), j=b.job||{}, d=newDraft();
+ d.name=b.name||''; d.dateV=b.date||'';
+ var h=parseInt(b.hour,10), lab=isNaN(h)?'':String(h).padStart(2,'0')+':00';
+ if(lab&&SLOTS.indexOf(lab)>=0) d.timeV=lab; else if(/上午/.test(b.slotLabel||'')) d.timeV='上午'; else if(/下午/.test(b.slotLabel||'')) d.timeV='下午'; else if(/晚上/.test(b.slotLabel||'')) d.timeV='晚上';
+ function side(city,dist,addr,fl){ return {t:[city,dist,addr].filter(Boolean).join(' ').replace(/^(\S+) (\S+)/,'$1$2'), f:(j.carry==='1'||!fl||fl==='elev')?'':fl, e:j.carry==='1'?'有':(fl==='elev'?'有':(fl?'無':'有'))}; }
+ var f=side(j.fromCity,j.fromDist,b.fromAddr,j.fromFloor), t=side(j.toCity,j.toDist,b.toAddr,j.toFloor);
+ d.from=f.t; d.fromFloor=f.f; d.fromElev=f.e; d.to=t.t; d.toFloor=t.f; d.toElev=t.e;
+ d.on.move=true; if(j.pack) d.on.pack=true; if(j.restore) d.on.place=true;
+ var lm=String(j.loadLabel||''); d.v.move.trips=/半/.test(lm)?0.5:(/兩|二|2/.test(lm)?2:(/三|3/.test(lm)?3:1));
+ d.note='';
+ var heard=b.heard||''; if(heard&&leadNames().indexOf(heard)>=0) d.src=tokenOf(heard);
+ d.raw=b.text||'';
+ var hint=[]; if(b.quote&&b.quote.shown) hint.push('官網估價（客人看到）：'+b.quote.shown+(b.quote.low!=null&&b.quote.high!=null?'；內部 $'+Number(b.quote.low).toLocaleString('en-US')+(b.quote.low!==b.quote.high?'～$'+Number(b.quote.high).toLocaleString('en-US'):''):''));
+ if(lm) hint.push('東西：'+lm); if(b.phone) hint.push('電話：'+b.phone+(b.lineName?'，LINE：'+b.lineName:'')); if(b.note) hint.push('客人附註：'+b.note);
+ d._pmsg='已用官網預約資料填好，金額沒有自動填，請自己確認。'+(hint.length?' 參考：'+hint.join('；')+'。':'');
+ d._booking=bk.id;
+ return d;
+}
+function bookingCard(bk){
+ var b=bookingOf(bk), j=b.job||{};
+ return '<section class="card" style="margin:8px 12px;padding:10px 12px;gap:6px"><div class="sp"><b>'+esc(b.name||bk.name||'（沒填稱呼）')+'</b><span class="pill p0">新預約</span></div>'
+ +'<div class="muted" style="line-height:1.5">'+esc((b.date||'')+' '+(b.slotLabel||''))+'<br>'+esc((j.fromCity||'')+(j.fromDist||'')+' → '+(j.toCity||'')+(j.toDist||''))+(b.quote&&b.quote.shown?'<br>官網估價 '+esc(b.quote.shown):'')+'</div>'
+ +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-bk="'+bk.id+'">開報價單（已填好）</button><button class="btn sm sec" data-bkx="'+bk.id+'">略過</button></div></section>';
+}
 function renderList(){
+ purgeOld();
  var pay=getPay();
  var h='<section><h1>報價單</h1><button class="btn" id="newQ">＋ 開新報價單</button></section>';
  h+='<section style="padding:12px 16px"><div class="sp" id="tgPay" style="cursor:pointer"><h2>收款帳號'+(pay.acct?'（已設定）':'（還沒設定）')+'</h2><span class="muted">'+(showPay?'收起 ▲':'修改 ▼')+'</span></div>'
  +(showPay?'<label>銀行（含代號）</label><input id="pay_bank" value="'+esc(pay.bank)+'" placeholder="例如：○○銀行（代號 000）"><label>帳號</label><input id="pay_acct" inputmode="numeric" value="'+esc(pay.acct)+'" placeholder="輸入你的收款帳號"><label>戶名</label><input id="pay_holder" value="'+esc(pay.holder)+'" placeholder="戶名"><div class="muted">客人按確認之後才看得到。</div>':'')+'</section>';
+ var bks=(api.bookings?api.bookings():[]).filter(function(x){return x.status==='new'});
+ if(bks.length) h+='<div class="muted" style="margin:14px 16px 0;font-weight:700;color:#B45309">官網新預約（'+bks.length+'）：點一下就開好報價單</div>'+bks.map(bookingCard).join('');
  var quotes=api.quotes();
  var g={w:[],c:[],v:[]};
  quotes.forEach(function(q){ (isExpired(q)?g.v:(q.status==='未確認'?g.w:g.c)).push(q); });
@@ -386,6 +424,8 @@ function renderList(){
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); if(q) copyOut(q,'msg',Promise.resolve()); }});
  rootEl.querySelectorAll('[data-copyl]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copyl')); if(q) copyOut(q,'link',Promise.resolve()); }});
+ rootEl.querySelectorAll('[data-bk]').forEach(function(b){b.onclick=function(){ var id=b.getAttribute('data-bk'), bk=(api.bookings()||[]).filter(function(x){return x.id===id})[0]; if(!bk) return; draft=bookingDraft(bk); screen='new'; manage=false; renderApp(); window.scrollTo(0,0); }});
+ rootEl.querySelectorAll('[data-bkx]').forEach(function(b){b.onclick=function(){ var id=b.getAttribute('data-bkx'); if(confirm('略過這筆官網預約？之後不會再出現在清單。')) Promise.resolve(api.updateBooking(id,{status:'skipped'})).catch(function(e){ alert2('失敗（'+((e&&e.code)||'錯誤')+'）'); }); }});
  rootEl.querySelectorAll('[data-edit]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-edit')); if(!q||!q.form) return; draft=JSON.parse(JSON.stringify(q.form)); draft._edit=q.token; ensureV(draft); screen='new'; manage=false; renderApp(); window.scrollTo(0,0); }});
  rootEl.querySelectorAll('[data-void]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-void'));if(q&&confirm('確定把這張報價單設為已過期？客人打開連結會看到「已過期」。')){Promise.resolve(api.updateQuote(q.token,{status:'作廢'})).catch(function(e){ alert2('作廢失敗（'+((e&&e.code)||'錯誤')+'）'); });}}});
  function del(q){ return Promise.resolve(api.deleteQuote(q.id)).catch(function(e){ alert2('刪除失敗（'+((e&&e.code)||'錯誤')+'）'); }); }

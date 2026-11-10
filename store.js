@@ -62,6 +62,13 @@ export async function init() {
           notify();
         }, err => console.warn('報價單同步失敗（Firebase 規則還沒設定？）', err));
       } catch (e) { console.warn('報價單同步失敗', e); }
+      // 官網預約：頂層集合 bookings（客人送出預約時官網寫一份進來），只有你的 Google 帳號讀得到
+      try {
+        fs.onSnapshot(fs.collection(db, 'bookings'), snap => {
+          snap.docChanges().forEach(ch => { if (ch.type !== 'removed') bookingCache.set(ch.doc.id, { id: ch.doc.id, ...ch.doc.data() }); else bookingCache.delete(ch.doc.id); });
+          notify();
+        }, err => console.warn('官網預約同步失敗（Firebase 規則還沒設定？）', err));
+      } catch (e) { console.warn('官網預約同步失敗', e); }
       const col = c => fs.collection(db, 'users', uid, c);
       const queries = [
         ...COLLECTIONS.filter(c => !BIG.includes(c)).map(c => [c, col(c)]),
@@ -181,6 +188,20 @@ export async function setPublic(id, data) {
   if (mode !== 'cloud' || !uid) return false;
   await fs.setDoc(fs.doc(db, 'public', id), data);
   return true;
+}
+
+// ---- 官網預約（自動變成待開單的報價草稿）----
+const bookingCache = new Map();
+export const bookingsAll = () => [...bookingCache.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+export async function bookingUpdate(id, patch) {
+  const rec = { ...bookingCache.get(id), ...patch, id };
+  bookingCache.set(id, rec); notify();
+  if (mode === 'cloud') await fs.setDoc(fs.doc(db, 'bookings', id), stripId(rec));
+  return rec;
+}
+export async function bookingDelete(id) {
+  bookingCache.delete(id); notify();
+  if (mode === 'cloud') await fs.deleteDoc(fs.doc(db, 'bookings', id));
 }
 
 // ---- 報價單 ----

@@ -1,0 +1,12 @@
+// 官網預約的 Firebase 規則：只「新增」這一段，貼在既有規則的
+// match /databases/{database}/documents { ... } 裡面，不要蓋掉原本的規則。
+match /bookings/{id} {
+  // 客人在官網送出預約時可以新增一筆（限定欄位、大小），不能讀、改、刪
+  allow create: if request.resource.data.status == 'new'
+    && request.resource.data.keys().hasOnly(['status','createdAt','name','date','json'])
+    && request.resource.data.json is string
+    && request.resource.data.json.size() < 20000;
+  // 只有你的 Google 帳號能讀、改、刪
+  allow get, list, update, delete: if request.auth != null
+    && request.auth.token.email == 'kk3414966@gmail.com';
+}
