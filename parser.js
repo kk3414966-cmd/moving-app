@@ -228,7 +228,7 @@ export function parseLine(input, opts = {}) {
     const parts = m[3].trim().split(/\s+/).filter(Boolean);
     let contact = '', srcKey = '';
     // 最後一段：「聯絡.來源」例如 賴.回（聯絡位置.客戶來源）；也可以只有聯絡（賴）或只有「.來源」
-    const lastP = parts[parts.length - 1] || '', mm = lastP.match(/^([賴粉L]|\d{8,10})?\.([^\s.]+)$/);
+    const lastP = parts[parts.length - 1] || '', mm = lastP.match(/^([^\s.\d]{1,2}|\d{8,10})?\.([^\s.]+)$/);
     if (mm && (mm[1] || parts.length > 1)) { parts.pop(); contact = mm[1] || ''; srcKey = mm[2]; }
     else if (parts.length && (CONTACTS[lastP] || /^\d{8,10}$/.test(lastP))) contact = parts.pop();
     out.kind = 'job';

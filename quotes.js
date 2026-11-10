@@ -66,7 +66,9 @@ function readDateText(txt){
  return r;
 }
 
-var CTC=['賴','粉','L'];
+var CTC_DEF=[{k:'賴',n:'個人LINE'},{k:'粉',n:'粉專'},{k:'L',n:'公司LINE'}];
+function ctcList(){ var x=api.settings().contacts; return CTC_DEF.concat(Array.isArray(x)?x:[]); }
+function addContact(){ var nm=(prompt('新增聯絡方式（你在哪裡回客人，例如：IG、電話、Messenger）')||'').trim(); if(!nm) return ''; var k=(prompt('標題裡要用哪一個字代表它？（1～2 個字，例如：電）')||'').trim(); if(!k||k.length>2||/[\s.\d]/.test(k)){ alert2('代號要 1～2 個字，不能有數字、空格或句點'); return ''; } var l=ctcList(); for(var i=0;i<l.length;i++) if(l[i].k===k){ alert2('「'+k+'」已經被用了'); return ''; } var cur=api.settings().contacts; cur=Array.isArray(cur)?cur.slice():[]; cur.push({k:k,n:nm}); api.saveSettings({contacts:cur}); return k; }
 function tailOf(c,r){ return (c||'')+(r?'.'+r:''); }
 // 來源選項＝行事曆的「客源」項目（設定→客源項目），兩邊是同一份。標題裡寫代號字（沒有代號字就寫客源全名）。
 var LEAD_MAP_DEF={'地':'Google 地圖','回':'回頭客','粉':'粉專'};
@@ -202,7 +204,7 @@ function renderApp(){
  +'<div class="row2"><input type="date" id="f_dateV" value="'+esc(d.dateV)+'" aria-label="搬家日期"><select id="f_timeV" aria-label="時間">'+SLOTS.map(function(x){return '<option value="'+x+'"'+((d.timeV||'待補')===x?' selected':'')+'>'+(x==='待補'?'時間待補':x)+'</option>'}).join('')+'</select></div>'
  +'<input id="f_from" placeholder="舊址（區域、路名）" value="'+esc(d.from)+'">'+elevRow('from',d)
  +'<input id="f_to" placeholder="新址（區域、路名）" value="'+esc(d.to)+'">'+elevRow('to',d)
- +'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(d.ctc===k?' on':'')+'" data-ctc="'+k+'">'+(k==='L'?'L（公司LINE）':k==='賴'?'賴（個人LINE）':'粉（粉專）')+'</button>'}).join('')+'</div>'
+ +'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+ctcList().map(function(c){return '<button type="button" class="chip'+(d.ctc===c.k?' on':'')+'" data-ctc="'+esc(c.k)+'">'+esc(c.k)+'（'+esc(c.n)+'）</button>'}).join('')+'<button type="button" class="chip" id="ctcAdd">＋ 新增</button></div>'
  +'<div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(d.src===k?' on':'')+'" data-src="'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'<button type="button" class="chip" id="srcAdd">＋ 新增</button></div><div class="muted">聯絡＝在哪裡回客人；來源＝客人怎麼找到你（跟行事曆的「客源」是同一份，改名或刪除請到 設定→客源項目）。客人看不到，只會寫在行事曆標題最後面（例：賴.回）。</div></section>';
  h+='<section><div class="sp"><h2>服務項目（點一下勾選）</h2><button class="btn sm sec" id="mng">'+(manage?'完成':'管理項目')+'</button></div>';
  if(manage){
@@ -269,6 +271,7 @@ function bindApp(){
  if($('f_disc')) $('f_disc').oninput=function(){d.disc=n(this.value); rk('f_disc')};
  rootEl.querySelectorAll('[data-f]').forEach(function(el){ el.oninput=function(){ var v=d.v[el.getAttribute('data-k')], f=el.getAttribute('data-f'); v[f]=(f==='trips')?(parseFloat(String(el.value).replace(/[^0-9.]/g,''))||0):n(el.value); if(f==='trips'&&!(v.trips>0))v.trips=0; if(f==='hrs'&&v.est<v.hrs)v.est=v.hrs; rk(el.id)}; });
   if($('srcAdd')) $('srcAdd').onclick=function(){ var v=prompt('新增來源（客人怎麼找到你，例如：社團、整理師）'); v=(v||'').trim(); if(!v) return; var l=leadNames().slice(); if(l.indexOf(v)<0) l.push(v); var tk=prompt('標題裡要用哪一個字代表它？（選填，例如：社；不填就寫全名）'); tk=(tk||'').trim(); var patch={leads:l}; if(tk&&tk.length<=2){ var m=Object.assign({},leadMapQ()); m[tk]=v; patch.leadMap=m; } api.saveSettings(patch); d.src=tk&&tk.length<=2?tk:v; renderApp(); };
+ if($('ctcAdd')) $('ctcAdd').onclick=function(){ var k=addContact(); if(k){ d.ctc=k; renderApp(); } };
  rootEl.querySelectorAll('[data-ctc]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-ctc'); d.ctc=(d.ctc===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-src]').forEach(function(b){ b.onclick=function(){ var k=b.getAttribute('data-src'); d.src=(d.src===k?'':k); renderApp(); }; });
  rootEl.querySelectorAll('[data-chip]').forEach(function(b){ b.onclick=function(){var k=b.getAttribute('data-chip'); d.on[k]=!d.on[k]; renderApp()}; });
@@ -298,13 +301,33 @@ function bindApp(){
   var q={no:'Q-'+ymd0+'-'+String(cnt).padStart(2,'0'),id:tok,token:tok,
    name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),pay:getPay(),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,
    status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d)};
-  Promise.resolve(api.saveQuote(q)).catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); screen='list'; openId=q.id; renderApp(); toast2('已產生報價單連結');
+  var saved=Promise.resolve(api.saveQuote(q)); saved.catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); copyOut(q,'msg',saved); screen='list'; openId=q.id; openSet[q.id]=true; renderApp();
  };
 }
 function randToken(){ var a=new Uint8Array(16); (window.crypto||window.msCrypto).getRandomValues(a); return Array.prototype.map.call(a,function(x){return ('0'+x.toString(16)).slice(-2)}).join(''); }
 function toast2(m){ alert2(m); }
 var BASE='https://kk3414966-cmd.github.io/business-sites/moving/quote.html?t=';
 function alert2(m){ var e=document.createElement('div'); e.className='banner'; e.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);max-width:400px;z-index:20;border-radius:10px;font-size:14px'; e.textContent=m; document.body.appendChild(e); setTimeout(function(){e.remove()},2200); }
+
+// ===== 短網址（is.gd，JSONP，失敗就用原網址）＋ 給客人的文案 =====
+function shortenUrl(url){ return new Promise(function(res){ var done=false, cb='_isgd'+Date.now(), sc=document.createElement('script');
+ function fin(v){ if(done) return; done=true; try{ delete window[cb]; }catch(e){ window[cb]=undefined; } try{ sc.remove(); }catch(e){} res(v||''); }
+ window[cb]=function(r){ fin(r&&r.shorturl); }; sc.onerror=function(){ fin(''); };
+ sc.src='https://is.gd/create.php?format=json&callback='+cb+'&url='+encodeURIComponent(url); document.head.appendChild(sc); setTimeout(function(){ fin(''); },7000); }); }
+function custMsg(q,link){
+ return (q.name?q.name+' ':'')+'您好，我是搬家專車 😊\n這是您這次搬家的報價單，請點開看看內容：\n'+link+'\n\n搬家日期：'+q.date+'\n總價：'+fm(q.total)+'（訂金 '+fm(q.dep)+'）\n\n內容沒問題的話，請在頁面按「確認」，再依頁面上的匯款資訊轉訂金；匯款後麻煩截圖回傳給我，我就幫您把時間排進去。\n有任何問題直接回我就好，謝謝！';
+}
+function linkFor(q,ready){ if(q.short) return Promise.resolve(q.short); return shortenUrl(BASE+q.token).then(function(s){ if(s){ q.short=s; Promise.resolve(ready).then(function(){ return api.updateQuote(q.token,{short:s}); }).catch(function(){}); } return s||(BASE+q.token); }); }
+function copyOut(q,mode,ready){
+ var lp=linkFor(q,ready), tp=lp.then(function(l){ return mode==='link'?l:custMsg(q,l); });
+ var okMsg=mode==='link'?'已複製連結':'已複製給客人的文案（含連結），直接貼到 LINE';
+ function manual(){ tp.then(function(t){ var o=document.createElement('div'); o.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px'; o.innerHTML='<div style="background:#fff;border-radius:14px;padding:14px;max-width:440px;width:100%"><b>自動複製失敗，請長按文字全選後複製</b><textarea readonly rows="9" style="width:100%;margin-top:8px;font:inherit;font-size:14px"></textarea><button class="btn" style="margin-top:8px">關閉</button></div>'; var ta=o.querySelector('textarea'); ta.value=t; o.querySelector('button').onclick=function(){ o.remove(); }; document.body.appendChild(o); try{ ta.focus(); ta.select(); }catch(e){} }); }
+ function plain(){ tp.then(function(t){ return navigator.clipboard.writeText(t); }).then(function(){ toast2(okMsg); },manual); }
+ try{
+  if(navigator.clipboard&&window.ClipboardItem){ navigator.clipboard.write([new ClipboardItem({'text/plain':tp.then(function(t){ return new Blob([t],{type:'text/plain'}); })})]).then(function(){ toast2(okMsg); },plain); }
+  else if(navigator.clipboard) plain(); else manual();
+ }catch(e){ plain(); }
+}
 var openSet={}, showPay=false, showVoid=false;
 function qCard(q){
  var pc=q.status==='未確認'?'p0':(q.status==='作廢'?'p2':'p1');
@@ -315,9 +338,9 @@ function qCard(q){
   h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
   +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
-  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+CTC.map(function(k){return '<button type="button" class="chip'+(q.ctc===k?' on':'')+'" data-qctc="'+q.id+'|'+k+'">'+k+'</button>'}).join('')+'</div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'</div>':'')
-  +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+BASE+q.token+'</span></div>'
-  +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
+  +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+ctcList().map(function(c){return '<button type="button" class="chip'+(q.ctc===c.k?' on':'')+'" data-qctc="'+q.id+'|'+esc(c.k)+'">'+esc(c.k)+'</button>'}).join('')+'<button type="button" class="chip" data-qctcadd="'+q.id+'">＋ 新增</button></div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'</div>':'')
+  +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+(q.short||(BASE+q.token))+'</span></div>'
+  +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製給客人的文案</button><button class="btn sm sec" data-copyl="'+q.id+'">只複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
   +(q.status!=='作廢'?'<button class="btn sm sec" data-void="'+q.id+'">作廢</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';
  }
  return h+'</section>';
@@ -346,11 +369,13 @@ function renderList(){
  function baseOf(q){ if(q.calBase!==undefined) return q.calBase; var t=String(q.calTitle||''), tl=tailOf(q.ctc,q.src); if(tl&&t.slice(-(tl.length+1))===' '+tl) t=t.slice(0,-(tl.length+1)); else if(q.src&&t.slice(-(q.src.length+1))===' '+q.src) t=t.slice(0,-(q.src.length+1)); return t; }
  function setTail(q,c,r){ var base=baseOf(q), tl=tailOf(c,r), t=base+(tl?' '+tl:''); Promise.resolve(api.updateQuote(q.token,{ctc:c,src:r,calBase:base,calTitle:t})).then(function(){ return api.calSync?api.calSync(q.id,t):0; }).then(function(){ toast2('已更新，行事曆同步'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
  rootEl.querySelectorAll('[data-qsrc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qsrc').split('|'), q=find(p[0]); if(q) setTail(q,q.ctc||'',q.src===p[1]?'':p[1]); }; });
+ rootEl.querySelectorAll('[data-qctcadd]').forEach(function(b){ b.onclick=function(){ var q=find(b.getAttribute('data-qctcadd')); if(!q) return; var k=addContact(); if(k) setTail(q,k,q.src||''); }; });
  rootEl.querySelectorAll('[data-qctc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qctc').split('|'), q=find(p[0]); if(q) setTail(q,q.ctc===p[1]?'':p[1],q.src||''); }; });
  rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim(),calBase:(function(){var t=el.value.trim(),tl=tailOf(q.ctc,q.src); return (tl&&t.slice(-(tl.length+1))===' '+tl)?t.slice(0,-(tl.length+1)):t;})()})).then(function(){ return api.calSync?api.calSync(q.id,el.value.trim()):0; }).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
  rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
- rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); var url=BASE+q.token; try{ navigator.clipboard.writeText(url).then(function(){toast2('已複製連結，貼到 LINE 給客人')},function(){toast2('複製失敗，請手動長按連結複製')}); }catch(e){ toast2('複製失敗，請手動長按連結複製'); } }});
+ rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); if(q) copyOut(q,'msg',Promise.resolve()); }});
+ rootEl.querySelectorAll('[data-copyl]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copyl')); if(q) copyOut(q,'link',Promise.resolve()); }});
  rootEl.querySelectorAll('[data-void]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-void'));if(q&&confirm('確定作廢這張報價單？客人打開連結會看到「已作廢」。')){Promise.resolve(api.updateQuote(q.token,{status:'作廢'})).catch(function(e){ alert2('作廢失敗（'+((e&&e.code)||'錯誤')+'）'); });}}});
  function del(q){ return Promise.resolve(api.deleteQuote(q.id)).catch(function(e){ alert2('刪除失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
  rootEl.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-del'));if(q&&confirm('確定刪除「'+q.name+'」這張作廢報價單？刪掉就找不回來。')) del(q);}});
