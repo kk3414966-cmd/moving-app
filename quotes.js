@@ -27,6 +27,9 @@ var defs = JSON.parse(JSON.stringify(DEFAULT_DEFS));
 function loadDefs(){ var d=api.settings().quoteDefs; if(d&&d.length) defs=JSON.parse(JSON.stringify(d)); }
 function saveDefs(){ api.saveSettings({quoteDefs:defs}); }
 var screen='list', openId=null, draft=null, manage=false;
+var VALID_MS=3*24*3600*1000;
+function isExpired(q){ if(q.status==='作廢') return true; if(q.status!=='未確認') return false; var t=Date.parse(q.validFrom||q.createdAt||''); return !isNaN(t)&&Date.now()>t+VALID_MS; }
+function validUntil(q){ var t=Date.parse(q.validFrom||q.createdAt||''); if(isNaN(t)) return ''; var d=new Date(t+VALID_MS); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function $(id){return rootEl.querySelector('#'+id)}
 function n(v){v=parseInt(String(v||'').replace(/[^0-9]/g,''),10);return isNaN(v)?0:v}
 function fm(v){return 'NT$ '+Number(v).toLocaleString('en-US')}
@@ -163,8 +166,8 @@ function parsePaste(txt){
   var parts=route.split(/→|->|＞|>/); var rf=(parts[0]||'').replace(/，?\s*約\s*[\d.]+\s*公里.*$/,''), rt=(parts[1]||'').replace(/，?\s*約\s*[\d.]+\s*公里.*$/,'');
   from=clean(rf); to=clean(rt); fE=elev(rf); tE=elev(rt); fF=floorOf(rf); tF=floorOf(rt);
  }
- if(!from){ var f1=lab(['舊家區域／地址','舊家區域/地址','舊址','舊家','舊居','搬出地址','搬出','現址','原址','出發地']); if(f1){from=clean(f1); fE=fE||elev(f1); fF=fF||floorOf(f1);} }
- if(!to){ var t1=lab(['新家區域／地址','新家區域/地址','新址','新家','新居','搬入地址','搬入','搬到','目的地']); if(t1){to=clean(t1); tE=tE||elev(t1); tF=tF||floorOf(t1);} }
+ if(!from){ var f1=lab(['舊家區域／地址','舊家區域/地址','舊址','舊家','舊居','搬出地址','搬出','現址','原址','出發地']); if(f1){var fp=f1.split('｜'); from=clean(fp[0]); fE=fE||elev(fp[1]||f1); fF=fF||floorOf(fp[1]||f1);} }
+ if(!to){ var t1=lab(['新家區域／地址','新家區域/地址','新址','新家','新居','搬入地址','搬入','搬到','目的地']); if(t1){var tp=t1.split('｜'); to=clean(tp[0]); tE=tE||elev(tp[1]||t1); tF=tF||floorOf(tp[1]||t1);} }
  var f2=lab(['舊家樓層','舊址樓層']); if(f2){ fE=elev(f2)||fE; fF=floorOf(f2)||fF; }
  var t2=lab(['新家樓層','新址樓層']); if(t2){ tE=elev(t2)||tE; tF=floorOf(t2)||tF; }
  name=lab(['客人','客戶','姓名','聯絡人','稱呼','名字']);
@@ -195,7 +198,7 @@ function parsePaste(txt){
 function renderApp(){
  if(screen==='list') return renderList();
  var d=draft; ensureV(d); var t=totals(d);
- var h='<section><h1>開報價單</h1><label>先把客人傳來的資料整段貼在這裡（LINE 對話、表單都可以）</label>'
+ var h='<section><h1>'+(d._edit?'修改報價單':'開報價單')+'</h1>'+(d._edit?'<div class="box">改完按最下面的「儲存修改」。客人的連結不變，打開就會看到新內容，有效期限從儲存當下重算 3 天。</div>':'')+'<label>先把官網預約單（或客人傳來的資料）整段貼在這裡，按「自動幫我填」</label>'
  +'<textarea id="paste" rows="5" placeholder="例如：\n客人：王小姐\n日期：11/20 上午9點\n舊址：台中市北屯區○○路5樓無電梯\n新址：台中市西屯區○○路12樓有電梯\n要打包、清運">'+esc(d.raw)+'</textarea>'
  +'<button class="btn sec" id="doParse">自動幫我填</button><div class="box" id="pmsg" style="'+(d._pmsg?'':'display:none')+'">'+esc(d._pmsg||'')+'</div>'
  +'<div class="muted">這個功能是用關鍵字找（客人、日期、舊址、新址、服務項目），格式不一樣就會漏，漏掉的自己補。</div></section>';
@@ -247,7 +250,7 @@ function renderApp(){
   +'<div class="sp"><span class="muted">訂金（總金額 10%，自動）</span><b id="sDep">'+fm(t.dep)+'</b></div>'
   +'<div class="box" style="background:#FEF9E7;color:#7A5B00">總價 15,000 以下：客人一鍵確認。超過會自動要求手寫簽名。</div></section>';
   h+='<section><label for="f_note">給客人的備註（選填）</label><textarea id="f_note" placeholder="例如：電梯已預約、搬完幫忙拆床架">'+esc(d.note)+'</textarea>'
-  +'<button class="btn" id="gen">產生報價單連結</button></section>';
+  +'<button class="btn" id="gen">'+(d._edit?'儲存修改（連結不變）':'產生報價單連結')+'</button></section>';
  }
  h+='<section><button class="btn sec" id="cancelNew">回清單</button></section>';
  rootEl.innerHTML=h; bindApp();
@@ -297,10 +300,17 @@ function bindApp(){
   if(!t.items.length){ alert2('請至少勾一個服務項目'); return; }
   var today=new Date(), ymd0=today.getFullYear()+String(today.getMonth()+1).padStart(2,'0')+String(today.getDate()).padStart(2,'0');
   var cnt=api.quotes().filter(function(x){return String(x.no||'').indexOf('Q-'+ymd0)===0}).length+1;
-  var tok=randToken();
+  var tok=d._edit||randToken();
+  var snap=JSON.parse(JSON.stringify(d)); delete snap._edit; delete snap._pmsg;
+  if(d._edit){
+   var old=find(d._edit); if(!old){ alert2('找不到原本的報價單'); return; }
+   var patch={name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d),form:snap,validFrom:new Date().toISOString(),editedAt:new Date().toISOString()};
+   Promise.resolve(api.updateQuote(d._edit,patch)).then(function(){ toast2('已儲存修改'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); });
+   screen='list'; openId=d._edit; openSet[d._edit]=true; draft=null; renderApp(); return;
+  }
   var q={no:'Q-'+ymd0+'-'+String(cnt).padStart(2,'0'),id:tok,token:tok,
    name:d.name,date:dateText(d),from:addr(d.from,d.fromFloor,d.fromElev),to:addr(d.to,d.toFloor,d.toElev),pay:getPay(),items:t.items,sub:t.sub,disc:t.disc,total:t.total,dep:t.dep,note:d.note,
-   status:'未確認',custNote:'',sig:null,at:null,boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d)};
+   status:'未確認',custNote:'',sig:null,at:null,form:snap,validFrom:new Date().toISOString(),boxes:boxesFor(d),ctc:d.ctc||'',src:d.src||'',calBase:buildTitle(d,true),calTitle:buildTitle(d)};
   var saved=Promise.resolve(api.saveQuote(q)); saved.catch(function(e){ alert2('存到雲端失敗（'+((e&&e.code)||'錯誤')+'）：請確認 Firebase 規則已設定，客人才打得開連結'); }); copyOut(q,'msg',saved); screen='list'; openId=q.id; openSet[q.id]=true; renderApp();
  };
 }
@@ -330,18 +340,18 @@ function copyOut(q,mode,ready){
 }
 var openSet={}, showPay=false, showVoid=false;
 function qCard(q){
- var pc=q.status==='未確認'?'p0':(q.status==='作廢'?'p2':'p1');
- var st=q.status==='已確認'&&q.sig?'已確認・已簽名':(q.status==='作廢'?'已作廢':q.status);
+ var pc=isExpired(q)?'p2':(q.status==='未確認'?'p0':'p1');
+ var st=q.status==='已確認'&&q.sig?'已確認・已簽名':(isExpired(q)?'已過期':q.status);
  var op=!!openSet[q.id];
  var h='<section class="card qrow" style="margin:8px 12px;padding:10px 12px;gap:6px"><div class="sp" data-tg="'+q.id+'" style="cursor:pointer"><div style="min-width:0"><b>'+esc(q.name)+'</b><div class="muted" style="line-height:1.4">'+esc(q.date)+'・'+fm(q.total)+'</div></div><span class="pill '+pc+'" style="white-space:nowrap">'+st+(op?' ▲':' ▼')+'</span></div>';
  if(op){
-  h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+'</div>'
+  h+='<div class="muted">'+esc(q.no||q.id)+(q.total>CUR?'・需簽名':'')+(q.status==='未確認'&&validUntil(q)?'・'+(isExpired(q)?'已於 ':'有效至 ')+validUntil(q)+(isExpired(q)?' 過期':''):'')+'</div>'
   +(q.calTitle!==undefined?'<div class="box"><label>行事曆標題（客人確認後照這個加進行事曆，可以直接改）</label><input data-ct="'+q.id+'" value="'+esc(q.calTitle)+'" style="margin-top:6px"></div>':'')
   +(q.custNote?'<div class="box">客人備註：'+esc(q.custNote)+'</div>':'')
   +(q.calTitle!==undefined?'<div class="row" style="flex-wrap:wrap"><span class="muted">聯絡</span>'+ctcList().map(function(c){return '<button type="button" class="chip'+(q.ctc===c.k?' on':'')+'" data-qctc="'+q.id+'|'+esc(c.k)+'">'+esc(c.k)+'</button>'}).join('')+'<button type="button" class="chip" data-qctcadd="'+q.id+'">＋ 新增</button></div><div class="row" style="flex-wrap:wrap"><span class="muted">來源</span>'+srcList().map(function(k){return '<button type="button" class="chip'+(q.src===k?' on':'')+'" data-qsrc="'+q.id+'|'+esc(k)+'">'+esc(nameOfTok(k))+'</button>'}).join('')+'</div>':'')
   +'<div class="box" style="background:#EFF6FF;word-break:break-all"><span id="lk_'+q.id+'">'+(q.short||(BASE+q.token))+'</span></div>'
   +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-copy="'+q.id+'">複製給客人的文案</button><button class="btn sm sec" data-copyl="'+q.id+'">只複製連結</button><button class="btn sm sec" data-open="'+q.id+'">看客人頁</button>'
-  +(q.status!=='作廢'?'<button class="btn sm sec" data-void="'+q.id+'">作廢</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';
+  +(q.status==='未確認'&&q.form?'<button class="btn sm sec" data-edit="'+q.id+'">修改報價單</button>':'')+(!isExpired(q)?'<button class="btn sm sec" data-void="'+q.id+'">設為已過期</button>':'<button class="btn sm sec" data-del="'+q.id+'" style="color:#B91C1C;border-color:#B91C1C">刪除</button>')+'</div>';
  }
  return h+'</section>';
 }
@@ -352,12 +362,12 @@ function renderList(){
  +(showPay?'<label>銀行（含代號）</label><input id="pay_bank" value="'+esc(pay.bank)+'" placeholder="例如：○○銀行（代號 000）"><label>帳號</label><input id="pay_acct" inputmode="numeric" value="'+esc(pay.acct)+'" placeholder="輸入你的收款帳號"><label>戶名</label><input id="pay_holder" value="'+esc(pay.holder)+'" placeholder="戶名"><div class="muted">客人按確認之後才看得到。</div>':'')+'</section>';
  var quotes=api.quotes();
  var g={w:[],c:[],v:[]};
- quotes.forEach(function(q){ (q.status==='未確認'?g.w:(q.status==='作廢'?g.v:g.c)).push(q); });
+ quotes.forEach(function(q){ (isExpired(q)?g.v:(q.status==='未確認'?g.w:g.c)).push(q); });
  if(!quotes.length) h+='<section><div class="muted">還沒有報價單。按上面「開新報價單」開始。</div></section>';
  function grp(t,list){ if(!list.length) return ''; return '<div class="muted" style="margin:14px 16px 0;font-weight:700;color:#1F3A5F">'+t+'（'+list.length+'）</div>'+list.map(qCard).join(''); }
  h+=grp('等客人確認',g.w)+grp('客人已確認',g.c);
  if(g.v.length){
-  h+='<section style="padding:12px 16px"><div class="sp" id="tgVoid" style="cursor:pointer"><h2>已作廢（'+g.v.length+'）</h2><span class="muted">'+(showVoid?'收起 ▲':'展開 ▼')+'</span></div>'
+  h+='<section style="padding:12px 16px"><div class="sp" id="tgVoid" style="cursor:pointer"><h2>已過期（'+g.v.length+'）</h2><span class="muted">'+(showVoid?'收起 ▲':'展開 ▼')+'</span></div>'
   +(showVoid?'<button class="btn sm sec" id="delAllVoid" style="color:#B91C1C;border-color:#B91C1C">全部刪除（'+g.v.length+' 張）</button>':'')+'</section>';
   if(showVoid) h+=g.v.map(qCard).join('');
  }
@@ -376,10 +386,11 @@ function renderList(){
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); if(q) copyOut(q,'msg',Promise.resolve()); }});
  rootEl.querySelectorAll('[data-copyl]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copyl')); if(q) copyOut(q,'link',Promise.resolve()); }});
- rootEl.querySelectorAll('[data-void]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-void'));if(q&&confirm('確定作廢這張報價單？客人打開連結會看到「已作廢」。')){Promise.resolve(api.updateQuote(q.token,{status:'作廢'})).catch(function(e){ alert2('作廢失敗（'+((e&&e.code)||'錯誤')+'）'); });}}});
+ rootEl.querySelectorAll('[data-edit]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-edit')); if(!q||!q.form) return; draft=JSON.parse(JSON.stringify(q.form)); draft._edit=q.token; ensureV(draft); screen='new'; manage=false; renderApp(); window.scrollTo(0,0); }});
+ rootEl.querySelectorAll('[data-void]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-void'));if(q&&confirm('確定把這張報價單設為已過期？客人打開連結會看到「已過期」。')){Promise.resolve(api.updateQuote(q.token,{status:'作廢'})).catch(function(e){ alert2('作廢失敗（'+((e&&e.code)||'錯誤')+'）'); });}}});
  function del(q){ return Promise.resolve(api.deleteQuote(q.id)).catch(function(e){ alert2('刪除失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
- rootEl.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-del'));if(q&&confirm('確定刪除「'+q.name+'」這張作廢報價單？刪掉就找不回來。')) del(q);}});
- if($('delAllVoid')) $('delAllVoid').onclick=function(){ var vs=api.quotes().filter(function(q){return q.status==='作廢'}); if(vs.length&&confirm('確定刪除全部 '+vs.length+' 張作廢報價單？刪掉就找不回來。')) vs.reduce(function(p,q){return p.then(function(){return del(q)})},Promise.resolve()); };
+ rootEl.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-del'));if(q&&confirm('確定刪除「'+q.name+'」這張已過期報價單？刪掉就找不回來。')) del(q);}});
+ if($('delAllVoid')) $('delAllVoid').onclick=function(){ var vs=api.quotes().filter(function(q){return isExpired(q)}); if(vs.length&&confirm('確定刪除全部 '+vs.length+' 張已過期報價單？刪掉就找不回來。')) vs.reduce(function(p,q){return p.then(function(){return del(q)})},Promise.resolve()); };
 }
 var payT=null;
 function getPay(){ return api.settings().quotePay||{bank:'',acct:'',holder:''}; }
