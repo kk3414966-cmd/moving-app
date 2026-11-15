@@ -361,7 +361,7 @@ function purgeOld(){
  api.quotes().forEach(function(q){
   if(q.status==='已確認'||purging[q.id]) return;
   var t=Date.parse(q.validFrom||q.createdAt||''); if(isNaN(t)||Date.now()<=t+PURGE_MS) return;
-  purging[q.id]=1; Promise.resolve(api.deleteQuote(q.id)).catch(function(){ delete purging[q.id]; });
+  purging[q.id]=1; logQ(q,{out:q.lost?'流失':'過期',reason:q.lost?q.lost.r:'',at:q.lost?tms(q.lost.at):expT(q)}).then(function(){return api.deleteQuote(q.id)}).catch(function(){ delete purging[q.id]; });
  });
 }
 function bookingOf(bk){ try{ return JSON.parse(bk.json||'{}'); }catch(e){ return {}; } }
@@ -390,6 +390,77 @@ function bookingCard(bk){
  +'<div class="muted" style="line-height:1.5">'+esc((b.date||'')+' '+(b.slotLabel||''))+'<br>'+esc((j.fromCity||'')+(j.fromDist||'')+' → '+(j.toCity||'')+(j.toDist||''))+(b.quote&&b.quote.shown?'<br>官網估價 '+esc(b.quote.shown):'')+'</div>'
  +'<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-bk="'+bk.id+'">開報價單（已填好）</button><button class="btn sm sec" data-bkx="'+bk.id+'">略過</button></div></section>';
 }
+var FU_DEF=['已報價再問','客人考慮中','等客人看房','等日期'], LOSS_DEF=['太貴','找別家','延期','沒回'];
+var bTab='w', pick={}, showOpt=false, showRep=false, stamped={};
+function optList(k,def){ var l=(api.settings()||{})[k]; return (l&&l.length)?l:def; }
+function weekStart(){ var d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); }
+function tms(s){ var t=typeof s==='number'?s:Date.parse(s||''); return isNaN(t)?0:t; }
+function sentT(q){ return tms(q.validFrom||q.createdAt); }
+function expT(q){ return sentT(q)+VALID_MS; }
+function md(t){ var d=new Date(t); return (d.getMonth()+1)+'/'+d.getDate(); }
+function qLog(){ var l=(api.settings()||{}).quoteLog; return Array.isArray(l)?l.slice():[]; }
+function logQ(q,extra){ var old=qLog(), prev=old.filter(function(x){return x.id===q.id})[0]||{}, l=old.filter(function(x){return x.id!==q.id}); l.push(Object.assign({},prev,{id:q.id,name:q.name,total:Number(q.total)||0,sent:sentT(q),exp:expT(q)},extra||{})); if(l.length>500) l=l.slice(-500); return Promise.resolve(api.saveSettings({quoteLog:l})); }
+function qById(id){ return api.quotes().filter(function(x){return x.id===id})[0]; }
+function cb(attr,val,txt){ return '<button type="button" class="chip" '+attr+'="'+esc(val)+'">'+esc(txt)+'</button>'; }
+function nCard(q,tab){
+ var id=q.id, p=pick[id]||'', left=expT(q)-Date.now();
+ var h='<section class="card" style="margin:8px 12px;padding:10px 12px;gap:6px"><div class="sp" data-tg="'+esc(id)+'" style="cursor:pointer"><b>'+esc(q.name)+'</b><b>'+fm(q.total)+'</b></div>';
+ var sub='報價 '+md(sentT(q));
+ if(tab==='w') sub+='・'+(left<86400000?'<span style="color:#C2410C;font-weight:700">'+validUntil(q)+' 到期（剩約 '+Math.max(1,Math.ceil(left/3600000))+' 小時）</span>':validUntil(q)+' 到期');
+ else if(tab==='c') sub+='・'+(q.sig?'已確認・已簽名':'已確認')+(q.confAt?'・'+md(tms(q.confAt)):'');
+ else sub+='・'+(q.lost?'流失：'+esc(q.lost.r):(q.status==='作廢'?'已作廢':'已過期沒回'));
+ if(q.src) sub+='・來源：'+esc(nameOfTok(q.src));
+ h+='<div class="muted" style="line-height:1.5">'+sub+'</div>';
+ if(q.fu) h+='<div class="muted" style="color:#1F3A5F">跟進：'+esc(q.fu.n)+'（'+md(tms(q.fu.at))+(q.fu.c>1?'・第 '+q.fu.c+' 次':'')+'）</div>';
+ if(tab==='w') h+='<div class="row" style="gap:6px"><button class="btn sm sec" style="flex:1" data-nfu="'+esc(id)+'">跟進過了</button><button class="btn sm" style="flex:1;background:#16A34A" data-nok="'+esc(id)+'">客人確認</button><button class="btn sm" style="flex:1;background:#DC2626" data-nlost="'+esc(id)+'">客人流失</button></div>';
+ else if(tab==='v'&&!q.lost) h+='<div class="row"><button class="btn sm sec" data-nlost="'+esc(id)+'">補記流失原因</button></div>';
+ if(p==='fu'||p==='lost'){ var ol=p==='fu'?optList('quoteFu',FU_DEF):optList('quoteLoss',LOSS_DEF); h+='<div class="muted" style="font-weight:700">'+(p==='fu'?'這次跟進的狀況（點一個就存好）':'客人為什麼沒成（點一個就存好）')+'</div><div class="row" style="flex-wrap:wrap;gap:6px">'+ol.map(function(t,i){return cb(p==='fu'?'data-pfu':'data-plost',id+'|'+i,t)}).join('')+cb('data-nopt','1','✎ 改選項')+'</div>'; }
+ if(openSet[id]) h+=qCard(q);
+ return h+'</section>';
+}
+function board(g){
+ var wk=weekStart(), now=Date.now(), logs=qLog(), all=api.quotes();
+ g.c.forEach(function(q){ if(!q.confAt&&!stamped[q.id]){ stamped[q.id]=1; var s=sentT(q); Promise.resolve(api.updateQuote(q.token,{confAt:(now-s<7*86400000)?now:s})).catch(function(){}); } });
+ var sum=function(a){return a.reduce(function(s,q){return s+(Number(q.total)||0)},0)};
+ var cW=g.c.filter(function(q){return tms(q.confAt)>=wk});
+ var cur={}; all.forEach(function(q){cur[q.id]=1});
+ var exW=g.v.filter(function(q){return !q.lost&&expT(q)>=wk&&expT(q)<=now}).length+logs.filter(function(x){return !cur[x.id]&&x.out==='過期'&&x.exp>=wk}).length;
+ var stat=function(n,l,s){return '<div style="background:#F4F6FA;border-radius:10px;padding:8px;text-align:center"><b style="display:block;font-size:20px">'+n+'</b><span class="muted" style="font-size:11px">'+l+(s?'<br>'+s:'')+'</span></div>'};
+ var h='<section style="padding:12px 16px"><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+stat(g.w.length,'等確認',fm(sum(g.w)))+stat(cW.length,'本週確認',fm(sum(cW)))+stat(exW,'本週過期','')+'</div></section>';
+ var tabs=[['w','等確認',g.w.length],['c','已確認',g.c.length],['v','已結束',g.v.length]];
+ h+='<div style="display:flex;gap:6px;margin:0 16px 4px">'+tabs.map(function(t){var on=bTab===t[0]; return '<button type="button" data-btab="'+t[0]+'" style="flex:1;padding:8px 4px;border-radius:8px;border:0;font-size:14px;'+(on?'background:#1F6FEB;color:#fff':'background:#E8ECF3;color:#1d2530')+'">'+t[1]+'（'+t[2]+'）</button>'}).join('')+'</div>';
+ var list=bTab==='c'?g.c.slice().sort(function(a,b){return tms(b.confAt)-tms(a.confAt)}):(bTab==='v'?g.v.slice().sort(function(a,b){return sentT(b)-sentT(a)}):g.w.slice().sort(function(a,b){return expT(a)-expT(b)}));
+ h+=list.length?list.map(function(q){return nCard(q,bTab)}).join(''):'<section><div class="muted">這裡沒有報價單。</div></section>';
+ if(bTab==='v'&&g.v.length) h+='<section style="padding:4px 16px"><button class="btn sm sec" id="delAllVoid" style="color:#B91C1C;border-color:#B91C1C">全部刪除（'+g.v.length+' 張）</button></section>';
+ var ents={}; logs.forEach(function(x){ents[x.id]={sent:x.sent,total:x.total||0,out:x.out||'',reason:x.reason||'',at:tms(x.at)}});
+ all.forEach(function(q){ var o=q.status==='已確認'?'確認':(q.lost?'流失':(isExpired(q)?'過期':'等')); ents[q.id]={sent:sentT(q),total:Number(q.total)||0,out:o,reason:q.lost?q.lost.r:'',at:q.lost?tms(q.lost.at):tms(q.confAt)}; });
+ var arr=Object.keys(ents).map(function(k){return ents[k]});
+ var sw=arr.filter(function(e){return e.sent>=wk}), okW=sw.filter(function(e){return e.out==='確認'});
+ var lostW=arr.filter(function(e){return e.out==='流失'&&e.at>=wk}), rs={};
+ lostW.forEach(function(e){rs[e.reason||'沒寫原因']=(rs[e.reason||'沒寫原因']||0)+1});
+ var fuW=all.filter(function(q){return q.fu&&tms(q.fu.at)>=wk}).length;
+ h+='<section style="padding:12px 16px"><div class="sp" data-orep="1" style="cursor:pointer"><h2>本週報表</h2><span class="muted">'+(showRep?'收起 ▲':'展開 ▼')+'</span></div>'+(showRep?'<div style="line-height:1.9;font-size:14px">本週開出：<b>'+sw.length+'</b> 張（'+fm(sw.reduce(function(s,e){return s+e.total},0))+'）<br>已確認：<b>'+okW.length+'</b> 張・確認率 <b>'+(sw.length?Math.round(okW.length/sw.length*100):0)+'%</b><br>客人流失：<b>'+lostW.length+'</b> 張'+(lostW.length?'（'+Object.keys(rs).map(function(k){return esc(k)+' '+rs[k]}).join('・')+'）':'')+'<br>過期沒回：<b>'+sw.filter(function(e){return e.out==='過期'}).length+'</b> 張<br>本週有跟進的：<b>'+fuW+'</b> 張<div class="muted">週一到現在。確認率＝本週開出的報價單裡已確認的比例。</div></div>':'')+'</section>';
+ function blk(k,t,list){ return '<div class="muted" style="font-weight:700;margin-top:8px">'+t+'</div><div class="row" style="flex-wrap:wrap;gap:6px">'+list.map(function(x,i){return '<span class="chip" style="display:inline-flex;gap:8px">'+esc(x)+'<b data-odel="'+k+'|'+i+'" style="cursor:pointer;color:#B91C1C">×</b></span>'}).join('')+'</div><div class="row" style="margin-top:6px"><input id="oin_'+k+'" placeholder="新增一個選項" style="flex:1"><button class="btn sm" data-oadd="'+k+'">加</button></div>'; }
+ h+='<section id="optPanel" style="padding:12px 16px"><div class="sp" data-otg="1" style="cursor:pointer"><h2>改按鈕選項</h2><span class="muted">'+(showOpt?'收起 ▲':'展開 ▼')+'</span></div>'+(showOpt?blk('quoteFu','「跟進過了」的選項',optList('quoteFu',FU_DEF))+blk('quoteLoss','「客人流失」的原因',optList('quoteLoss',LOSS_DEF))+'<div class="muted">按 × 刪掉、下面輸入文字按「加」新增。全部刪光會變回預設。</div>':'')+'</section>';
+ return h;
+}
+function bindBoard(){
+ function err(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }
+ function each(sel,fn){ rootEl.querySelectorAll(sel).forEach(function(b){ b.onclick=function(){ fn(b); }; }); }
+ each('[data-btab]',function(b){ bTab=b.getAttribute('data-btab'); renderList(); });
+ each('[data-nfu]',function(b){ var id=b.getAttribute('data-nfu'); pick[id]=pick[id]==='fu'?'':'fu'; renderList(); });
+ each('[data-nlost]',function(b){ var id=b.getAttribute('data-nlost'); pick[id]=pick[id]==='lost'?'':'lost'; renderList(); });
+ each('[data-nopt]',function(){ showOpt=true; renderList(); var el=$('optPanel'); if(el&&el.scrollIntoView) el.scrollIntoView(); });
+ each('[data-orep]',function(){ showRep=!showRep; renderList(); });
+ each('[data-otg]',function(){ showOpt=!showOpt; renderList(); });
+ each('[data-nok]',function(b){ var q=qById(b.getAttribute('data-nok')); if(!q||!confirm('客人已經確認「'+q.name+'」了？按確定會改成「已確認」。')) return; var now=Date.now(); Promise.resolve(api.updateQuote(q.token,{status:'已確認',confAt:now})).then(function(){ return logQ(q,{out:'確認',at:now}); }).then(function(){ toast2('已改成已確認'); }).catch(err); });
+ each('[data-pfu]',function(b){ var p=b.getAttribute('data-pfu').split('|'), q=qById(p[0]), nm=optList('quoteFu',FU_DEF)[+p[1]]; if(!q||!nm) return; pick[q.id]=''; Promise.resolve(api.updateQuote(q.token,{fu:{n:nm,at:Date.now(),c:((q.fu&&q.fu.c)||0)+1}})).then(function(){ toast2('已記下：'+nm); renderList(); }).catch(err); });
+ each('[data-plost]',function(b){ var p=b.getAttribute('data-plost').split('|'), q=qById(p[0]), nm=optList('quoteLoss',LOSS_DEF)[+p[1]]; if(!q||!nm) return; pick[q.id]=''; var now=Date.now(); Promise.resolve(api.updateQuote(q.token,{status:'作廢',lost:{r:nm,at:now}})).then(function(){ return logQ(q,{out:'流失',reason:nm,at:now}); }).then(function(){ toast2('已記下：流失（'+nm+'）'); renderList(); }).catch(err); });
+ function addOpt(k){ var el=$('oin_'+k), v=el?el.value.trim():''; if(!v) return; var l=optList(k,k==='quoteFu'?FU_DEF:LOSS_DEF).slice(); if(l.indexOf(v)<0) l.push(v); var o={}; o[k]=l; Promise.resolve(api.saveSettings(o)).then(renderList).catch(err); }
+ each('[data-oadd]',function(b){ addOpt(b.getAttribute('data-oadd')); });
+ ['quoteFu','quoteLoss'].forEach(function(k){ var el=$('oin_'+k); if(el) el.onkeydown=function(e){ if(e.key==='Enter') addOpt(k); }; });
+ each('[data-odel]',function(b){ var p=b.getAttribute('data-odel').split('|'), k=p[0], l=optList(k,k==='quoteFu'?FU_DEF:LOSS_DEF).slice(); l.splice(+p[1],1); var o={}; o[k]=l; Promise.resolve(api.saveSettings(o)).then(renderList).catch(err); });
+}
 function renderList(){
  purgeOld();
  var pay=getPay();
@@ -403,8 +474,8 @@ function renderList(){
  quotes.forEach(function(q){ (isExpired(q)?g.v:(q.status==='未確認'?g.w:g.c)).push(q); });
  if(!quotes.length) h+='<section><div class="muted">還沒有報價單。按上面「開新報價單」開始。</div></section>';
  function grp(t,list){ if(!list.length) return ''; return '<div class="muted" style="margin:14px 16px 0;font-weight:700;color:#1F3A5F">'+t+'（'+list.length+'）</div>'+list.map(qCard).join(''); }
- h+=grp('等客人確認',g.w)+grp('客人已確認',g.c);
- if(g.v.length){
+ h+=board(g);
+ if(0){
   h+='<section style="padding:12px 16px"><div class="sp" id="tgVoid" style="cursor:pointer"><h2>已過期（'+g.v.length+'）</h2><span class="muted">'+(showVoid?'收起 ▲':'展開 ▼')+'</span></div>'
   +(showVoid?'<button class="btn sm sec" id="delAllVoid" style="color:#B91C1C;border-color:#B91C1C">全部刪除（'+g.v.length+' 張）</button>':'')+'</section>';
   if(showVoid) h+=g.v.map(qCard).join('');
@@ -420,7 +491,7 @@ function renderList(){
  rootEl.querySelectorAll('[data-qctcadd]').forEach(function(b){ b.onclick=function(){ var q=find(b.getAttribute('data-qctcadd')); if(!q) return; var k=addContact(); if(k) setTail(q,k,q.src||''); }; });
  rootEl.querySelectorAll('[data-qctc]').forEach(function(b){ b.onclick=function(){ var p=b.getAttribute('data-qctc').split('|'), q=find(p[0]); if(q) setTail(q,q.ctc===p[1]?'':p[1],q.src||''); }; });
  rootEl.querySelectorAll('[data-ct]').forEach(function(el){ el.onchange=function(){ var q=find(el.getAttribute('data-ct')); if(!q) return; Promise.resolve(api.updateQuote(q.token,{calTitle:el.value.trim(),calBase:(function(){var t=el.value.trim(),tl=tailOf(q.ctc,q.src); return (tl&&t.slice(-(tl.length+1))===' '+tl)?t.slice(0,-(tl.length+1)):t;})()})).then(function(){ return api.calSync?api.calSync(q.id,el.value.trim()):0; }).then(function(){ toast2('行事曆標題已更新'); }).catch(function(e){ alert2('儲存失敗（'+((e&&e.code)||'錯誤')+'）'); }); }; });
- rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
+ bindBoard(); rootEl.querySelectorAll('[data-tg]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-tg'); openSet[id]=!openSet[id]; renderList()}});
  rootEl.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){ try{ window.open(BASE+find(b.getAttribute('data-open')).token,'_blank'); }catch(e){} }});
  rootEl.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copy')); if(q) copyOut(q,'msg',Promise.resolve()); }});
  rootEl.querySelectorAll('[data-copyl]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-copyl')); if(q) copyOut(q,'link',Promise.resolve()); }});
@@ -428,7 +499,7 @@ function renderList(){
  rootEl.querySelectorAll('[data-bkx]').forEach(function(b){b.onclick=function(){ var id=b.getAttribute('data-bkx'); if(confirm('略過這筆官網預約？之後不會再出現在清單。')) Promise.resolve(api.updateBooking(id,{status:'skipped'})).catch(function(e){ alert2('失敗（'+((e&&e.code)||'錯誤')+'）'); }); }});
  rootEl.querySelectorAll('[data-edit]').forEach(function(b){b.onclick=function(){ var q=find(b.getAttribute('data-edit')); if(!q||!q.form) return; draft=JSON.parse(JSON.stringify(q.form)); draft._edit=q.token; ensureV(draft); screen='new'; manage=false; renderApp(); window.scrollTo(0,0); }});
  rootEl.querySelectorAll('[data-void]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-void'));if(q&&confirm('確定把這張報價單設為已過期？客人打開連結會看到「已過期」。')){Promise.resolve(api.updateQuote(q.token,{status:'作廢'})).catch(function(e){ alert2('作廢失敗（'+((e&&e.code)||'錯誤')+'）'); });}}});
- function del(q){ return Promise.resolve(api.deleteQuote(q.id)).catch(function(e){ alert2('刪除失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
+ function del(q){ return logQ(q,{out:q.lost?'流失':'過期',reason:q.lost?q.lost.r:'',at:q.lost?tms(q.lost.at):expT(q)}).then(function(){return api.deleteQuote(q.id)}).catch(function(e){ alert2('刪除失敗（'+((e&&e.code)||'錯誤')+'）'); }); }
  rootEl.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){var q=find(b.getAttribute('data-del'));if(q&&confirm('確定刪除「'+q.name+'」這張已過期報價單？刪掉就找不回來。')) del(q);}});
  if($('delAllVoid')) $('delAllVoid').onclick=function(){ var vs=api.quotes().filter(function(q){return isExpired(q)}); if(vs.length&&confirm('確定刪除全部 '+vs.length+' 張已過期報價單？刪掉就找不回來。')) vs.reduce(function(p,q){return p.then(function(){return del(q)})},Promise.resolve()); };
 }
