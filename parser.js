@@ -220,8 +220,9 @@ export function parseLine(input, opts = {}) {
     rest = `${m[1]} ${m[3]}`.trim();
   }
 
-  // 工作：代號.起點終點樓層 客戶 聯絡
-  m = rest.match(/^(?:\d+\s*[×x]\s*)?(\d{1,4})\.(\S*)\s*(.*)$/);
+  // 工作：代號.起點終點樓層 客戶 聯絡（前面「2x」「2*」= 兩車；代號後面沒打點也可以，例如「03烏日5.0」）
+  m = rest.match(/^(?:\d+\s*[×xX*＊]\s*)?(\d{1,4})\.(\S*)\s*(.*)$/) ||
+    rest.match(/^(?:\d+\s*[×xX*＊]\s*)?(\d{1,4})([一-龥]+\d+\.\d+)\s*(.*)$/);
   if (m && (!lead || lead.sign > 0)) {
     const code = parseCode(m[1]);
     const route = parseRoute(m[2]);
