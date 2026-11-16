@@ -166,6 +166,8 @@ function statsView() {
   const head = `<div class="month-nav"><button data-stats="-1">‹</button><h2>${ym.replace('-', ' 年 ')} 月</h2><button data-stats="1">›</button></div>
     <div class="stab">${[['work', '工作'], ['personal', '個人'], ['card', '卡費']].map(([k, t]) => `<button data-stab="${k}" class="${tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
 
+  // 公式的每一行：滑鼠移上去（手機點一下）看是哪幾筆
+  const frow = (label, v, list, cls) => `<tr class="has-tip"><td>${label}<span class="hint">ⓘ</span>${tip(list)}</td><td class="${cls}">${money(v)}</td></tr>`;
   if (tab === 'work') {
     const CAR = ['加油', '停車', '過路費', '租車', '車輛保養'];
     const wInc = txs.filter(t => t.biz === '公' && t.type === 'income'), wExp = txs.filter(t => t.biz === '公' && t.type === 'expense');
@@ -174,7 +176,6 @@ function statsView() {
     const tot = l => l.reduce((a, t) => a + +t.amount, 0);
     const helper = tot(lHelper), car = tot(lCar), other = tot(lOther);
     const otherNames = [...new Set(lOther.map(t => t.category))].slice(0, 4).join('、') || '介紹費、收購、包材…';
-    const frow = (label, v, list, cls) => `<tr class="has-tip"><td>${label}<span class="hint">ⓘ</span>${tip(list)}</td><td class="${cls}">${money(v)}</td></tr>`;
     // 每天：收入、成本、淨賺
     const days = {};
     for (const t of txs.filter(t => t.biz === '公')) {
@@ -222,18 +223,20 @@ function statsView() {
 
   if (tab === 'personal') {
     const pers = txs.filter(t => t.biz !== '公'), persExp = pers.filter(t => t.type === 'expense');
-    const otherIncome = pers.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0);
+    const persInc = pers.filter(t => t.type === 'income'), otherIncome = persInc.reduce((a, t) => a + +t.amount, 0);
+    const work = txs.filter(t => t.biz === '公' && (t.type === 'income' || t.type === 'expense')); // 工作淨利 = 工作收入 − 工作成本
     const group = (list, key) => list.reduce((m, t) => ((m[key(t)] ||= []).push(t), m), {});
     const byCat = group(persExp, t => t.category), byAcc = group(txs.filter(t => t.type === 'expense'), t => t.account || '現金');
     const left = s.workNet + otherIncome - s.personal;
     return `${head}
     <section><h3>這個月剩多少</h3>
       <table class="formula">
-        <tr><td>工作淨利</td><td class="g">${money(s.workNet)}</td></tr>
-        ${otherIncome ? `<tr><td>＋ 其他收入</td><td class="g">${money(otherIncome)}</td></tr>` : ''}
-        <tr><td>－ 個人花費</td><td class="r">${money(s.personal)}</td></tr>
+        ${frow('工作淨利（收入扣掉成本）', s.workNet, work, 'g')}
+        ${otherIncome ? frow('＋ 其他收入', otherIncome, persInc, 'g') : ''}
+        ${frow('－ 個人花費', s.personal, persExp, 'r')}
         <tr class="total"><td>＝ 這個月存下來</td><td>${money(left)}</td></tr>
-      </table></section>
+      </table>
+      <p class="muted">滑鼠移到每一行上（手機點一下）可以看細項。</p></section>
     <section><h3>個人花費 <small class="muted">滑鼠移上去（手機點一下）看細項</small></h3>${donut(s.personalBy, byCat)}
       <h4>付款方式</h4><table>${['現金', ...BANKS].map(a => `<tr class="has-tip"><td>${a}<span class="hint">ⓘ</span>${tip(byAcc[a] || [])}</td><td>${money(s.byAccount[a] || 0)}</td></tr>`).join('')}</table></section>
     <section><h3>明細 <small class="muted">點一下看那天的行事曆</small></h3><table>${detailRows(pers)}</table></section>
