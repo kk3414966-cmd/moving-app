@@ -270,7 +270,7 @@ export function openForm(id, date, copyFrom) {
 }
 
 // 時間選單：照 12／24 小時制畫（手機內建的時間欄位跟著手機設定，改不了，所以自己畫）。隱藏欄位存 24 小時制 HH:mm
-function drawTp(el) {
+export function drawTp(el) {
   const name = el.dataset.tp, v = (el.querySelector('input')?.value || el.dataset.v || '10:00'), [h, m] = v.split(':').map(Number);
   const mins = [...new Set([...Array(12)].map((_, i) => i * 5).concat(m))].sort((a, b) => a - b);
   const sel = (cls, opts, cur) => `<select class="${cls}">${opts.map(([val, t]) => `<option value="${val}" ${+val === +cur ? 'selected' : ''}>${t}</option>`).join('')}</select>`;

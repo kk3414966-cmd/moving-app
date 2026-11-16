@@ -211,8 +211,24 @@ main:has(.tmonth) .cal-head, main:has(.tweekview) .cal-head { padding: 0 8px; }
 .ev-meta { display: flex; gap: 14px; color: var(--muted); font-size: 14px; }
 .ev-meta i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
 /* 新增／編輯表單 */
-#evform .sheet-head b { font-size: 16px; }
-#evform .sheet-head .primary { background: #2ecc87; border-color: #2ecc87; color: #fff; font-size: 15px; padding: 6px 16px; border-radius: 16px; }
+#evform .sheet-head b, #txform .sheet-head b { font-size: 16px; }
+#evform .sheet-head .primary, #txform .sheet-head .primary { background: #2ecc87; border-color: #2ecc87; color: #fff; font-size: 15px; padding: 6px 16px; border-radius: 16px; }
+/* 修改收支：跟編輯行程同一種樣子 */
+.seg-pick { display: flex; gap: 6px; flex: 1; }
+#txform .seg-pick .sp { flex: 1; margin: 0; font-size: inherit; }
+.seg-pick input { position: absolute; opacity: 0; width: 0; height: 0; }
+.seg-pick span { display: block; text-align: center; padding: 8px 4px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-size: 15px; cursor: pointer; }
+.seg-pick input:checked + span { color: #fff; background: var(--navy); border-color: var(--navy); font-weight: 700; }
+.seg-pick .sp-expense input:checked + span { background: var(--red); border-color: var(--red); }
+.seg-pick .sp-income input:checked + span { background: var(--green); border-color: var(--green); }
+#txform > .seg-pick { margin: 8px 0 4px; }
+#txform .amt-big { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-size: 26px; font-weight: 700; color: var(--ink); }
+.amt-big input { font-size: 28px; font-weight: 700; border: none; border-bottom: 2px solid var(--line); border-radius: 0; padding: 6px 2px; background: none; }
+.amt-big input:focus { outline: none; border-color: #2ecc87; }
+#txform .f-title { font-size: 18px; }
+#txform .f-row > span { width: 64px; }
+.link-card { display: block; width: 100%; text-align: left; margin: 8px 0; background: #eaf7f0; border-color: #bfe8d2; color: var(--green); font-size: 14px; }
+#txform .danger.wide { margin-top: 16px; }
 .f-title { font-size: 20px; border: none; border-bottom: 2px solid var(--line); border-radius: 0; background: none; margin: 6px 0 4px; padding: 10px 2px; }
 .f-title:focus { outline: none; border-color: #2ecc87; }
 .f-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }

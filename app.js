@@ -277,96 +277,84 @@ let downOnBackdrop = false; // 從視窗裡按下、拖到外面放開，不算�
 $('#modal').addEventListener('pointerdown', e => { downOnBackdrop = e.target === e.currentTarget; });
 $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget && downOnBackdrop) closeModal(); });
 
-function editRecord(col, id, draft) {
-  const r = draft || db.get(col, id);
+// 修改畫面：行程、收支都用同一種樣子（上面「取消／保存」，一行一個項目，下面刪除）
+function editRecord(col, id) {
+  if (col === 'events') return CAL.openForm(id);
+  const r = db.get(col, id);
   if (!r) return;
   const cats = L.categories(), accs = db.all('accounts').map(a => a.name);
   const opt = (list, v) => list.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('');
-  const f = (label, name, v, type = 'text') => `<label>${label}<input name="${name}" type="${type}" value="${esc(v)}"></label>`;
-  let body;
-  if (col === 'events') body = `
-    <label>類型<select name="type"><option value="job" ${r.type === 'job' ? 'selected' : ''}>工作</option><option value="event" ${r.type !== 'job' ? 'selected' : ''}>行程／記事</option></select></label>
-    ${f('日期', 'date', r.date, 'date')}${f('時間', 'time', r.time, 'time')}${f('內容', 'title', r.title)}
-    <fieldset class="jobonly"><legend>工作資料</legend>
-      ${f('代號', 'codeRaw', r.codeRaw)}${f('起點', 'from', r.from)}${f('終點', 'to', r.to)}
-      ${f('起點樓層', 'fromFloor', r.fromFloor)}${f('終點樓層', 'toFloor', r.toFloor)}${f('客戶', 'client', r.client)}${f('聯絡方式', 'contact', r.contact)}
-      <label>客源（客人怎麼找到你）<select name="lead">${L.leadOptions(r.lead)}</select></label>
-      <label class="check"><input type="checkbox" name="done" ${r.done ? 'checked' : ''}> 已完成</label>${f('實收金額', 'amount', r.amount || '', 'number')}
-    </fieldset>
-    <label>備註（完整內容）<textarea name="note" rows="6">${esc(r.note || '')}</textarea></label>`;
-  else body = `
-    <label>收支<select name="type">${[['expense', '支出'], ['income', '收入'], ['transfer', '繳卡費（轉帳）']].map(([v, t]) => `<option value="${v}" ${r.type === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-    ${f('金額', 'amount', r.amount, 'number')}${f('日期', 'date', r.date, 'date')}${f('時間', 'time', r.time, 'time')}
-    <label>分類<select name="category">${opt(cats.map(c => c.name).concat(['繳卡費']), r.category)}<option value="__new">＋ 新增分類…</option></select></label>
+  const seg = (name, list, v) => `<div class="seg-pick">${list.map(([val, t]) => `<label class="sp sp-${val}"><input type="radio" name="${name}" value="${val}" ${v === val ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>`;
+  const job = r.eventId && db.get('events', r.eventId);
+  openModal(`<form id="txform">
+    <div class="sheet-head"><button type="button" data-close>取消</button><b>修改收支</b><button type="submit" class="primary">保存</button></div>
+    ${seg('type', [['expense', '支出'], ['income', '收入'], ['transfer', '繳卡費']], r.type)}
+    <label class="amt-big"><span>$</span><input name="amount" type="number" inputmode="numeric" value="${esc(r.amount)}" placeholder="0"></label>
+    <input name="note" class="f-title" value="${esc(r.note || '')}" placeholder="買了什麼（例：零食、加油）" autocomplete="off">
+    ${job ? `<button type="button" class="link-card" data-ev="${job.id}">🚚 這筆是工作「${esc(evTitle(job))}」的收入 › 打開行程</button>` : ''}
+    <div class="f-row"><span>日期</span><div><input type="date" name="date" value="${r.date}"><span class="tp" data-tp="time" data-v="${r.time || '12:00'}"></span></div></div>
+    <div class="f-row notr"><span>分類</span><select name="category">${opt(cats.map(c => c.name), r.category)}<option value="__new">＋ 新增分類…</option></select></div>
     <div class="add-row hide" id="newcat"><input id="newcat-name" placeholder="新分類的名稱，例如：淘寶"><button type="button" class="primary" id="newcat-ok">加入</button></div>
-    ${draft ? '' : `<div class="sync hide" id="sync">
+    <div class="sync hide" id="sync">
       <label class="check"><input type="checkbox" name="syncAll" checked> 名稱有「<input name="syncKey" class="inline" value="${esc((r.note || '').split(/[\s*]/)[0])}">」的消費全部一起改（<b id="sync-n">0</b> 筆）</label>
-      <label class="check"><input type="checkbox" name="syncRule" checked> 以後抓到這種消費，自動用這個分類</label></div>`}
-    <label>帳戶${r.type === 'transfer' ? '（繳哪張卡）' : ''}<select name="${r.type === 'transfer' ? 'to' : 'account'}">${opt(accs, r.type === 'transfer' ? r.to : r.account)}</select></label>
-    <label>公／私<select name="biz">${opt(['公', '私'], r.biz)}</select></label>${f('備註', 'note', r.note)}`;
-  openModal(`<h3>${draft ? '修改後再確認' : '修改'}</h3><form id="edit-form">${body}
-    <div class="row"><button class="primary" type="submit">${draft ? '確認存檔' : '儲存'}</button>${draft ? '' : '<button type="button" class="danger" data-del>刪除</button>'}<button type="button" data-close>取消</button></div></form>`);
-  const form = $('#edit-form');
-  const toggle = () => form.querySelector('.jobonly')?.classList.toggle('hide', form.type.value !== 'job');
-  toggle(); form.type.addEventListener('change', toggle);
+      <label class="check"><input type="checkbox" name="syncRule" checked> 以後抓到這種消費，自動用這個分類</label></div>
+    <div class="f-row"><span id="acc-l">${r.type === 'transfer' ? '繳哪張卡' : '付款'}</span><select name="account">${opt(accs, r.type === 'transfer' ? r.to : (r.account || '現金'))}</select></div>
+    <div class="f-row notr"><span>公私</span>${seg('biz', [['公', '公帳（工作）'], ['私', '私帳（自己）']], r.biz || '私')}</div>
+    <button type="button" class="danger wide" data-del>刪除這筆</button>
+  </form>`);
+  const form = $('#txform');
+  CAL.drawTp(form.querySelector('.tp'));
+  let timeTouched = !!r.time;
+  form.querySelector('.tp').addEventListener('change', () => { timeTouched = true; });
+  // 繳卡費：不用分類、公私；「付款」改成「繳哪張卡」
+  const byType = () => {
+    const tr = form.type.value === 'transfer';
+    form.querySelectorAll('.notr').forEach(x => x.classList.toggle('hide', tr));
+    $('#acc-l').textContent = tr ? '繳哪張卡' : '付款';
+  };
+  byType();
+  form.querySelectorAll('[name=type]').forEach(x => x.addEventListener('change', byType));
   // 改分類：可以新增分類，也可以把同一家店的消費全部一起改
   const sync = form.querySelector('#sync');
   const others = () => L.sameMerchant(form.syncKey.value.trim(), form.type.value).filter(t => t.id !== id);
-  const showSync = () => {
-    if (!sync) return;
-    sync.classList.toggle('hide', form.category.value === r.category);
-    $('#sync-n').textContent = others().length;
+  const showSync = () => { sync.classList.toggle('hide', form.category.value === r.category); $('#sync-n').textContent = others().length; };
+  const nc = form.querySelector('#newcat'), ncName = form.querySelector('#newcat-name');
+  let lastCat = form.category.value;
+  form.category.addEventListener('change', () => {
+    if (form.category.value === '__new') { nc.classList.remove('hide'); ncName.focus(); form.category.value = lastCat; return; }
+    lastCat = form.category.value; showSync();
+  });
+  const addNew = async () => {
+    const name = ncName.value.trim();
+    if (!name) return toast('先打分類名稱');
+    if (!L.catOf(name)) await db.add('categories', { name, kind: form.type.value === 'income' ? 'income' : 'expense', work: false, bizMode: '私', keywords: [], order: L.categories().length });
+    if (![...form.category.options].some(o => o.value === name)) form.category.insertAdjacentHTML('afterbegin', `<option>${esc(name)}</option>`);
+    form.category.value = lastCat = name; nc.classList.add('hide'); ncName.value = ''; showSync();
   };
-  if (col === 'transactions') {
-    const nc = form.querySelector('#newcat'), ncName = form.querySelector('#newcat-name');
-    let lastCat = form.category.value;
-    form.category.addEventListener('change', () => {
-      if (form.category.value === '__new') { nc.classList.remove('hide'); ncName.focus(); form.category.value = lastCat; return; }
-      lastCat = form.category.value; showSync();
-    });
-    const addNew = async () => {
-      const name = ncName.value.trim();
-      if (!name) return toast('先打分類名稱');
-      if (!L.catOf(name)) await db.add('categories', { name, kind: form.type.value === 'income' ? 'income' : 'expense', work: false, bizMode: '私', keywords: [], order: L.categories().length });
-      if (![...form.category.options].some(o => o.value === name)) form.category.insertAdjacentHTML('afterbegin', `<option>${esc(name)}</option>`);
-      form.category.value = lastCat = name; nc.classList.add('hide'); ncName.value = ''; showSync();
-    };
-    form.querySelector('#newcat-ok').onclick = addNew;
-    ncName.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addNew(); } });
-    form.syncKey?.addEventListener('input', showSync);
-  }
+  form.querySelector('#newcat-ok').onclick = addNew;
+  ncName.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addNew(); } });
+  form.syncKey.addEventListener('input', showSync);
   form.onsubmit = async e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form));
     const { syncAll, syncKey, syncRule } = data; delete data.syncAll; delete data.syncKey; delete data.syncRule;
-    let msg = '已儲存';
-    if (col === 'transactions' && !draft && data.category !== r.category) {
+    data.amount = +data.amount || 0;
+    if (!data.amount) return toast('請輸入金額');
+    if (!timeTouched) data.time = r.time || '';
+    let msg = '已保存';
+    if (data.type === 'transfer') { data.to = data.account; delete data.account; data.from = '銀行戶頭'; data.category = '繳卡費'; delete data.biz; }
+    else if (data.category !== r.category) {
       if (data.biz === r.biz) data.biz = L.bizFor({ ...r, ...data }, data.date); // 公私照新分類重算
       const key = (syncKey || '').trim();
       if (syncAll && key) { const list = others(); await L.recategorize(list, data.category); msg = `已把 ${list.length + 1} 筆一起改成「${data.category}」`; }
       if (syncRule && key) await db.saveSettings({ merchantRules: { ...L.merchantRules(), [key]: data.category } });
     }
-    if (col === 'events') { data.done = !!form.done?.checked; data.amount = +data.amount || 0; Object.assign(data, data.type === 'job' ? L.codeInfo(data.codeRaw) : {}); data.route = (data.from || '') + (data.to && data.to !== data.from ? data.to : ''); }
-    else { data.amount = +data.amount || 0; if (data.type === 'transfer') { data.from = '銀行戶頭'; data.category = '繳卡費'; } }
-    if (draft) {
-      const p = state.pending; state.pending = null;
-      if (col === 'events') p.event = { ...p.event, ...data }; else p.txs[draft._i] = { ...p.txs[draft._i], ...data };
-      await L.saveParsed(p); toast('已存檔');
-    } else {
-      await db.update(col, id, data);
-      if (col === 'events' && data.done) { // 同步連動的收入
-        const tx = db.all('transactions').find(t => t.eventId === id);
-        if (tx) await db.update('transactions', tx.id, { amount: data.amount, date: data.date });
-        else if (data.amount) await db.add('transactions', { type: 'income', amount: data.amount, category: '搬家', work: true, biz: '公', account: '現金', date: data.date, time: data.time, note: data.title, eventId: id, source: '手動' });
-      }
-      toast(msg);
-    }
-    closeModal(); render();
+    await db.update(col, id, data);
+    toast(msg); closeModal(); render();
   };
-  form.querySelector('[data-del]')?.addEventListener('click', async () => {
+  form.querySelector('[data-del]').addEventListener('click', async () => {
     if (!confirm('確定要刪除這筆嗎？')) return;
     await db.remove(col, id);
-    if (col === 'events') for (const t of db.all('transactions').filter(t => t.eventId === id)) await db.remove('transactions', t.id);
     toast('已刪除'); closeModal(); render();
   });
 }
@@ -817,11 +805,6 @@ document.addEventListener('click', async e => {
   else if (d.export) doExport(d.export);
   else if (d.act === 'ok') confirmPending();
   else if (d.act === 'no') { state.pending = null; render(); }
-  else if (d.act === 'fix') {
-    const p = state.pending;
-    if (p.event) editRecord('events', null, { ...p.event });
-    else editRecord('transactions', null, { ...p.txs[0], _i: 0 });
-  }
   else if (d.act === 'gmail') readGmail();
   else if (d.act === 'gmail-reset') readGmail(true);
   else if (d.act === 'gmail-history') readGmail(false, true);
